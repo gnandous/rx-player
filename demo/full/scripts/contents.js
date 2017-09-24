@@ -37,4 +37,14 @@ export default [
     "transport": "smooth",
     "live": true,
   },
+  {
+    "name": "Big Buck Bunny",
+    "url": "https://www.w3schools.com/html/mov_bbb.mp4",
+    "transport": "directfile",
+  },
+  {
+    "name": "Sintel",
+    "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "transport": "directfile",
+  },
 ];
