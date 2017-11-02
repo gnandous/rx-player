@@ -131,22 +131,37 @@ const estimateRequestBandwidth = (request, requestTime, bitrate) => {
  * @param {Object} filters
  * @param {Number} [filters.bitrate] - max bitrate authorized (included).
  * @param {Number} [filters.width] - max width authorized (included).
+ * @param {Number} [maxDecodableBitrate] - max bitrate before decoding issues.
  * @returns {Array.<Representation>}
  */
-const getFilteredRepresentations = (representations, filters) => {
-  let _representations = representations;
+const getFilteredRepresentations =
+  (representations, filters) => {
+    let _representations = representations;
 
-  if (filters.hasOwnProperty("bitrate")) {
-    _representations = filterByBitrate(
-      _representations, filters.bitrate);
-  }
+    if(filters.hasOwnProperty("bitrate")) {
+      _representations = filterByBitrate(
+        _representations, filters.bitrate);
+    }
 
-  if (filters.hasOwnProperty("width")) {
-    _representations = filterByWidth(
-      _representations, filters.width);
-  }
+    if (filters.hasOwnProperty("width")) {
+      _representations = filterByWidth(
+        _representations, filters.width);
+    }
 
-  return _representations;
+    return _representations;
+  };
+
+/**
+* Only way we have to get decodable bitrate.
+* Maybe should be cleaner.
+*/
+const getDecodableBitrate = function(representations, bitrate) {
+  const representation = fromBitrateCeil(representations, bitrate);
+  const index = representations.indexOf(representation);
+
+  return (index <= 0) ?
+    representation[0].bitrate :
+    representations[index - 1].bitrate;
 };
 
 /**
@@ -213,6 +228,31 @@ export default class RepresentationChooser {
 
     this._limitWidth$ = options.limitWidth$;
     this._throttle$ = options.throttle$;
+
+    /**
+     * Information about frames (total decoded and dropped)
+     * Emitted at each clock event.
+     */
+    this._lastDroppedFrames = 0;
+    this._lastTotalFrames = 0;
+    this._currentDroppedFrames = 0;
+    this._currentTotalFrames = 0;
+
+    /**
+     * Maximum bitrate for which stream can be easily decoded.
+     * It is the last representation bitrate before the
+     * representation that causes player to have decode issues.
+     */
+    this._decodableBitrate = Infinity;
+
+    /**
+     * We consider that decoding troubles can be temporary.
+     * So, a timeout is set to define the moment where decodable
+     * bitrate should return to Infinity.
+     * The timeOut period increase each time the time is out.
+     */
+    this._timeOutId = null;
+    this._timeOut = 2;
   }
 
   get$(clock$, representations) {
@@ -262,6 +302,14 @@ export default class RepresentationChooser {
           let nextBitrate;
           let bandwidthEstimate;
           const { bufferGap } = clock;
+
+          this._currentTotalFrames =
+            clock.framesInfo.totalVideoFrames - this._lastTotalFrames;
+          this._lastTotalFrames = clock.framesInfo.totalVideoFrames;
+
+          this._currentDroppedFrames =
+            clock.framesInfo.droppedVideoFrames - this._lastDroppedFrames;
+          this._lastDroppedFrames = clock.framesInfo.droppedVideoFrames;
 
           // Check for starvation == not much left to play
           if (bufferGap <= ABR_STARVATION_GAP) {
@@ -338,8 +386,33 @@ export default class RepresentationChooser {
             nextBitrate /= clock.speed;
           }
 
+          if((this._currentDroppedFrames / this._currentTotalFrames) > 0.33) {
+            if (clock.bitrate) {
+              const decodableBitrate =
+                getDecodableBitrate(representations, clock.bitrate);
+              if (decodableBitrate < this._decodableBitrate) {
+                this._decodableBitrate = decodableBitrate;
+                if( this._timeOutId !== null) {
+                  clearTimeout(this._timeOutId);
+                }
+                this._timeOutId = setTimeout(() => {
+                  this._decodableBitrate = Infinity;
+                  this._timeOutId = null;
+                  this._timeOut = Math.pow(this._timeOut, 2);
+                }, this._timeOut * 60 * 1000);
+              }
+            }
+          }
+
+          deviceEvents.bitrate = deviceEvents.hasOwnProperty("bitrate") ?
+            Math.min(this._decodableBitrate, deviceEvents.bitrate) :
+            this._decodableBitrate;
+
           const _representations =
-            getFilteredRepresentations(representations, deviceEvents);
+            getFilteredRepresentations(
+              representations,
+              deviceEvents,
+            );
 
           return {
             bitrate: bandwidthEstimate,
