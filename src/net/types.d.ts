@@ -219,10 +219,10 @@ export type CustomSegmentLoader = (
   (() => void)|void;
 
 interface IParsedManifest {
-  locations?: any[];
+  locations?: any[]; // XXX TODO not optional
   transportType: string;
-  id?: string;
-  type?: string;
+  id?: string; // XXX TODO not optional
+  type?: string; // XXX TODO not optional
   availabilityStartTime?: Date|number;
   presentationLiveGap?: number;
   accessibility?: string[];

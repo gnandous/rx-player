@@ -213,11 +213,6 @@ function normalizeManifest(
   externalTextTracks : ISupplementaryTextTrack|ISupplementaryTextTrack[],
   externalImageTracks : ISupplementaryImageTrack|ISupplementaryImageTrack[]
 ) : Manifest {
-  // transportType == "smooth"|"dash"
-  if (!manifest.transportType) {
-    throw new MediaError("MANIFEST_PARSE_ERROR", null, true);
-  }
-
   // TODO cleaner ID
   manifest.id = manifest.id || "gen-manifest-" + uniqueId++;
 
