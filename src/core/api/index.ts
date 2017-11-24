@@ -544,10 +544,8 @@ class Player extends EventEmitter {
     // get every properties used from context for clarity
     const videoElement = this.videoElement;
 
-    // TODO either ditch or repair directFile playback
     /** @type {Boolean} */
-    // const withMediaSource = !transport.directFile;
-    const withMediaSource = true;
+    const withMediaSource = transport !== "directfile";
 
     /**
      * Global clock used for the whole application.

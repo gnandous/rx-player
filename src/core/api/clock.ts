@@ -197,6 +197,7 @@ function getStalledStatus(
   // when using a direct file, the video will stall and unstall on its
   // own, so we only try to detect when the video timestamp has not changed
   // between two consecutive timeupdates
+  // TODO Test same implementation even for diretfile
   else {
     if (
       canStall &&

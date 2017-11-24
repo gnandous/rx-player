@@ -744,6 +744,37 @@ export default function Stream({
     );
   }
 
+  function startDirectfile(): Observable<StreamEvent> {
+    const emeManager$ = EMEManager(videoElement, keySystems, errorStream);
+
+    const speedManager$ = SpeedManager(videoElement, speed$, timings$, {
+      pauseWhenStalled: withMediaSource,
+    }).map(newSpeed => ({ type: "speed", value: newSpeed }));
+
+    // const stallingManager$ = StallingManager(videoElement, manifest, timings$)
+    //   .map(stalledStatus => ({ type: "stalled", value: stalledStatus }));
+
+    const mediaErrorManager$ = createMediaErrorStream(videoElement);
+
+    return Observable.merge(
+      emeManager$,
+      mediaErrorManager$,
+      speedManager$
+      // stallingManager$
+    ) as any;
+  }
+
+  if (!withMediaSource) {
+    return createAndPlugMediaSource(
+      url,
+      videoElement,
+      withMediaSource,
+      sourceBufferMemory
+    )
+      .mergeMap(startDirectfile)
+      .takeUntil(endOfPlay);
+  }
+
   return createAndPlugMediaSource(
     url,
     videoElement,
