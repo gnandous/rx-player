@@ -19,11 +19,20 @@ import { Subject } from "rxjs/Subject";
 
 import { SupportedBufferTypes } from "../types";
 
+import config from "../../config";
+
 import Representation from "../../manifest/representation";
+import getABRFactor from "./factor_manager";
 import RepresentationChooser, {
   IRepresentationChooserClockTick,
   IRequest,
 } from "./representation_chooser";
+
+const {
+  ABR_DOWN_FACTOR,
+  ABR_UP_FACTOR,
+  ABR_INCREASE_DURATION,
+} = config;
 
 interface IMetricValue {
   duration: number;
@@ -77,7 +86,6 @@ export default class ABRManager {
   // TODO privatize
   private _choosers:  IDictionary<RepresentationChooser>;
   private _chooserInstanceOptions: IRepresentationChoosersOptions;
-
   private _dispose$: Subject<void>;
 
   /**
@@ -226,7 +234,16 @@ export default class ABRManager {
     representation: Representation|null;
   }> {
     this._lazilyCreateChooser(type);
-    return this._choosers[type].get$(clock$, representations);
+    return this._choosers[type].get$(
+      clock$,
+      representations,
+      getABRFactor(
+        clock$,
+        ABR_DOWN_FACTOR,
+        ABR_UP_FACTOR,
+        ABR_INCREASE_DURATION
+      )
+    );
   }
 
   /**

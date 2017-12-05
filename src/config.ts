@@ -305,18 +305,14 @@ export default {
   ABR_MINIMUM_CHUNK_SIZE: 16e3,
 
   /**
-   * Factor with which is multiplied the bandwidth estimate when the ABR is in
-   * starvation mode.
+   * Factors with which are multiplied the bandwidth estimate.
+   * The factor increase progressively from the down value, to the up,
+   * in the specified abr increase duration.
    * @type {Number}
    */
-  ABR_STARVATION_FACTOR: 0.72,
-
-  /**
-   * Factor with which is multiplied the bandwidth estimate when the ABR is not
-   * in starvation mode.
-   * @type {Number}
-   */
-  ABR_REGULAR_FACTOR: 0.90,
+  ABR_DOWN_FACTOR: 0.2,
+  ABR_UP_FACTOR: 0.9,
+  ABR_INCREASE_DURATION: 10,
 
   /**
    * If a SourceBuffer has less than this amount of seconds ahead of the current

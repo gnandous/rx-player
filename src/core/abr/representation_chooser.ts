@@ -36,8 +36,6 @@ import EWMA from "./ewma";
 const {
   ABR_STARVATION_GAP,
   OUT_OF_STARVATION_GAP,
-  ABR_STARVATION_FACTOR,
-  ABR_REGULAR_FACTOR,
 } = config;
 
 interface IRepresentationChooserClockTick {
@@ -307,7 +305,8 @@ export default class RepresentationChooser {
 
   public get$(
     clock$ : Observable<IRepresentationChooserClockTick>,
-    representations : Representation[]
+    representations : Representation[],
+    abr_factor$: Observable<number>
   ): Observable<{
     bitrate: undefined|number;
     representation: Representation|null;
@@ -361,8 +360,10 @@ export default class RepresentationChooser {
       // AUTO mode
       let inStarvationMode = false;
       return Observable.combineLatest(clock$, maxAutoBitrate$, deviceEvents$)
-        .map(([ clock, maxAutoBitrate, deviceEvents ]) => {
+        .withLatestFrom(abr_factor$)
+        .map(([[ clock, maxAutoBitrate, deviceEvents ], abr_factor]) => {
 
+          console.log(abr_factor);
           let nextBitrate;
           let bandwidthEstimate;
           const { bufferGap } = clock;
@@ -433,12 +434,12 @@ export default class RepresentationChooser {
             let nextEstimate;
             if (bandwidthEstimate != null) {
               nextEstimate = inStarvationMode ?
-                bandwidthEstimate * ABR_STARVATION_FACTOR :
-                bandwidthEstimate * ABR_REGULAR_FACTOR;
+                bandwidthEstimate * abr_factor * 2/3 :
+                bandwidthEstimate * abr_factor;
             } else if (lastEstimatedBitrate != null) {
               nextEstimate = inStarvationMode ?
-                lastEstimatedBitrate * ABR_STARVATION_FACTOR :
-                lastEstimatedBitrate * ABR_REGULAR_FACTOR;
+                lastEstimatedBitrate * abr_factor * 2/3 :
+                lastEstimatedBitrate * abr_factor;
             } else {
               nextEstimate = _initialBitrate;
             }
