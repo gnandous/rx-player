@@ -57,14 +57,14 @@ class Segment /* implements ISegment */ {
    * @param {string} [args.media]
    */
   constructor(args : ISegmentArguments) {
-    if (__DEV__) {
-      if (!args.init) {
-        assert(typeof args.time === "number" && args.time >= 0);
-      }
-      assert(args.id);
-      assert(args.timescale);
-      assert(args.media);
-    }
+    // if (__DEV__) {
+    //   if (!args.init) {
+    //     assert(typeof args.time === "number" && args.time >= 0);
+    //   }
+    //   assert(args.id);
+    //   assert(args.timescale);
+    //   assert(args.media);
+    // }
 
     this.id = args.id;
     this.duration = args.duration;

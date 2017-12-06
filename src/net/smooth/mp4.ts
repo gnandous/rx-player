@@ -30,12 +30,22 @@ import {
   itobe8,
   strToBytes,
 } from "../../utils/bytes";
+import { totalmem } from "os";
+import { letProto } from "rxjs/operator/let";
+import { finalize } from "rxjs/operators/finalize";
 
 type PSSList = Array<{
   systemId : string;
   privateData? : Uint8Array;
   keyIds? : Uint8Array;
 }>;
+
+interface IParsedSegment {
+  name: string;
+  length: number;
+  content: Uint8Array;
+  parsedContent: any;
+}
 
 export interface IISOBMFFBasicSegment {
   time : number;
@@ -550,7 +560,7 @@ const atoms = {
   },
 
   /**
-   * @param {Array.<Uint8Array>} representations - arrays of Uint8Array,
+   * @param {Array.<Uint8Array>} representations - boxes of Uint8Array,
    * typically [avc1] or [encv, avc1]
    * @returns {Uint8Array}
    */
@@ -800,19 +810,29 @@ function patchTrunDataOffset(
  * @returns {Uint8Array}
  */
 function createNewSegment(
-  segment : Uint8Array,
-  newmoof : Uint8Array,
-  oldmoof : Uint8Array,
+  segments : Array<{
+    name: string;
+    content: Uint8Array;
+  }>,
   trunoffset : number
 ) : Uint8Array {
-  const segmentlen = segment.length;
-  const newmooflen = newmoof.length;
-  const oldmooflen = oldmoof.length;
-  const mdat = segment.subarray(oldmooflen, segmentlen);
-  const newSegment = new Uint8Array(newmooflen + (segmentlen - oldmooflen));
-  newSegment.set(newmoof, 0);
-  newSegment.set(mdat, newmooflen);
-  patchTrunDataOffset(newSegment, trunoffset, newmoof.length + 8);
+  const reducer = (
+    accumulator: number,
+    currentValue: number
+  ) => accumulator + currentValue;
+  const segmentlen = segments.map((segment) => segment.content.length).reduce(reducer);
+  const newSegment = new Uint8Array(segmentlen);
+  let k = 0;
+  for(let i = 0; i<segments.length; i++){
+    newSegment.set(
+      segments[i].content,
+      k
+    );
+    k += segments[i].content.length;
+  }
+  const mooflen =
+    (segments.find((segment) => segment.name === "moof") as any).content.length;
+  patchTrunDataOffset(newSegment, trunoffset, mooflen + 8);
   return newSegment;
 }
 
@@ -825,16 +845,45 @@ function createNewSegment(
  * @returns {Uint8Array}
  */
 function patchSegmentInPlace(
-  segment : Uint8Array,
+  segments : Array<{
+    name: string;
+    content: Uint8Array;
+  }>,
   newmoof : Uint8Array,
   oldmoof : Uint8Array,
   trunoffset : number
 ) : Uint8Array {
   const free = oldmoof.length - newmoof.length;
-  segment.set(newmoof, 0);
-  segment.set(atoms.free(free), newmoof.length);
-  patchTrunDataOffset(segment, trunoffset, newmoof.length + 8 + free);
-  return segment;
+  const freeAtom = atoms.free(free);
+
+  for(let i = 0; i<segments.length; i++){
+    if(segments[i].name === "moof"){
+      segments.splice(i+1, 0, {
+        name: "free",
+        content: freeAtom,
+      });
+      i++;
+    }
+  }
+
+  const reducer = (
+    accumulator: number,
+    currentValue: number
+  ) => accumulator + currentValue;
+
+  const segmentlen = segments.map((segment) => segment.content.length).reduce(reducer);
+  const newSegment = new Uint8Array(segmentlen);
+  let k = 0;
+  for(let j = 0; j<segments.length; j++){
+    newSegment.set(
+      segments[j].content,
+      k
+    );
+    k += segments[j].content.length;
+  }
+
+  patchTrunDataOffset(newSegment, trunoffset, newmoof.length + 8 + free);
+  return newSegment;
 }
 
 /**
@@ -1083,53 +1132,77 @@ export default {
    * @param {Number} decodeTime
    * @return {Uint8Array}
    */
-  patchSegment(segment : Uint8Array, decodeTime : number) : Uint8Array {
-    if (__DEV__) {
-      // TODO handle segments with styp/free...
-      const name = bytesToStr(segment.subarray(4, 8));
-      assert(name === "moof");
+  patchSegment(_segment : Uint8Array, decodeTime : number) : Uint8Array {
+
+    function parseBoxes(seg: Uint8Array): IParsedSegment[] {
+    const segmentArray = [];
+    let i = 0;
+      while(i < seg.length){
+        const boxLength = be4toi(seg, i);
+        const name = bytesToStr(seg.subarray(i+4, i+8));
+        const content = seg.subarray(i, i+boxLength);
+        const parsedContent = (name === "moof" || name === "traf") ?
+          parseBoxes(content.subarray(8, content.length)) : [];
+        segmentArray.push({
+          name,
+          length: be4toi(content, 0),
+          content,
+          parsedContent,
+        });
+        i += boxLength;
+      }
+      return segmentArray;
     }
 
-    const oldmoof = segment.subarray(0, be4toi(segment, 0));
+    const boxes = parseBoxes(_segment);
+
+    const oldmoof = boxes.find((object: IParsedSegment) => object.name === "moof");
+    if(!oldmoof){
+      return _segment;
+    }
+    const oldmoofContent = oldmoof.content;
+    const oldtraf =
+      oldmoof.parsedContent.find((box: IParsedSegment) => box.name === "traf");
+    const oldtfhd =
+      oldtraf.parsedContent.find((box: IParsedSegment) => box.name === "tfhd").content;
+    const oldtrun =
+      oldtraf.parsedContent.find((box: IParsedSegment) => box.name === "trun").content;
+    const oldmfhd =
+      oldmoof.parsedContent.find((box: IParsedSegment) => box.name === "mfhd").content;
+
     const newtfdt = atoms.tfdt(decodeTime);
-
-    // reads [moof[mfhd|traf[tfhd|trun|..]]]
-    const tfdtlen = newtfdt.length;
-    const mfhdlen = be4toi(oldmoof, 8);
-    const traflen = be4toi(oldmoof, mfhdlen + 8);
-    const tfhdlen = be4toi(oldmoof, mfhdlen + 8 + 8);
-    const trunlen = be4toi(oldmoof, mfhdlen + 8 + 8 + tfhdlen);
-    const oldmfhd = oldmoof.subarray(8, mfhdlen + 8);
-    const oldtraf = oldmoof
-      .subarray(mfhdlen + 8 + 8, mfhdlen + 8 + 8 + traflen - 8);
-    const oldtfhd = oldtraf.subarray(0, tfhdlen);
-    const oldtrun = oldtraf.subarray(tfhdlen, tfhdlen + trunlen);
-
     // force trackId=1 since trackIds are not always reliable...
     oldtfhd.set([0, 0, 0, 1], 12);
-
     // TODO fallback?
-    const oldsenc = reads.senc(oldtraf) as Uint8Array;
-
-    if (__DEV__) {
-      assert(oldsenc);
-    }
+    const oldsenc = reads.senc(oldtraf.content) as Uint8Array;
 
     // writes [moof[mfhd|traf[tfhd|tfdt|trun|senc|saiz|saio]]]
     const newtrun = atoms.trun(oldtrun);
     const newtraf = atoms.traf(oldtfhd, newtfdt, newtrun, oldsenc, oldmfhd);
     const newmoof = atoms.moof(oldmfhd, newtraf);
 
-    const trunoffset = mfhdlen + 8 + 8 + tfhdlen + tfdtlen;
+    const trunoffset = oldmfhd.length + 8 + 8 + oldtfhd.length + newtfdt.length;
+
+    const newSegmentArray = boxes.map((box: IParsedSegment) => {
+      if(box.name === "moof") {
+        box.content = newmoof;
+      }
+      return box;
+    });
+
     // TODO(pierre): fix patchSegmentInPlace to work with IE11. Maybe
     // try to put free atom inside traf children
     if (isIE) {
-      return createNewSegment(segment, newmoof, oldmoof, trunoffset);
+      return createNewSegment(newSegmentArray, trunoffset);
     } else {
-      if (oldmoof.length - newmoof.length >= 8 /* minimum "free" atom size */) {
-        return patchSegmentInPlace(segment, newmoof, oldmoof, trunoffset);
+      if (oldmoofContent.length - newmoof.length >= 8 /* minimum "free" atom size */) {
+        const a =
+          patchSegmentInPlace(newSegmentArray, newmoof, oldmoofContent, trunoffset);
+        return a;
       } else {
-        return createNewSegment(segment, newmoof, oldmoof, trunoffset);
+        const a = createNewSegment(newSegmentArray, trunoffset);
+        debugger;
+        return a;
       }
     }
   },

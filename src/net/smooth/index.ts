@@ -190,6 +190,7 @@ export default function(
       const responseBuffer = new Uint8Array(responseData as ArrayBuffer);
       const { nextSegments, segmentInfos } =
         extractTimingsInfos(responseBuffer, segment, manifest.isLive);
+
       const segmentData = patchSegment(responseBuffer, segmentInfos.time);
 
       if (nextSegments) {

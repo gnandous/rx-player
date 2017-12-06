@@ -25,6 +25,8 @@ import {
 } from "../../parsers/containers/isobmff";
 import parseBif from "../../parsers/images/bif";
 
+import mp4Utils from "../smooth/mp4";
+
 import getISOBMFFTimingInfos from "./isobmff_timing_infos";
 import dashManifestParser from "./manifest";
 import generateSegmentLoader from "./segment_loader";
@@ -133,7 +135,6 @@ export default function(
 
       let nextSegments : INextSegmentsInfos[]|undefined;
       let segmentInfos : ISegmentTimingInfos;
-      const segmentData : Uint8Array = responseData;
 
       const indexRange = segment.indexRange;
       const sidxSegments =
@@ -152,6 +153,9 @@ export default function(
         segmentInfos =
           getISOBMFFTimingInfos(segment, responseData, sidxSegments, init);
       }
+
+      const segmentData : Uint8Array = segmentInfos.time !== -1 ?
+        mp4Utils.patchSegment(responseData, segmentInfos.time) : responseData;
 
       if (nextSegments) {
         addNextSegments(representation, segmentInfos, nextSegments);
