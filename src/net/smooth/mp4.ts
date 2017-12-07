@@ -30,9 +30,6 @@ import {
   itobe8,
   strToBytes,
 } from "../../utils/bytes";
-import { totalmem } from "os";
-import { letProto } from "rxjs/operator/let";
-import { finalize } from "rxjs/operators/finalize";
 
 type PSSList = Array<{
   systemId : string;
@@ -1181,11 +1178,19 @@ export default {
     const newtraf = atoms.traf(oldtfhd, newtfdt, newtrun, oldsenc, oldmfhd);
     const newmoof = atoms.moof(oldmfhd, newtraf);
 
-    const trunoffset = oldmfhd.length + 8 + 8 + oldtfhd.length + newtfdt.length;
+    let moofoffset = 0;
+    const moofIndex = boxes.findIndex((box) => box.name === "moof");
+    for(let k = 0; k<moofIndex; k++){
+      moofoffset += boxes[k].length;
+    }
+
+    const trunoffset =
+      moofoffset + 8 + 8 + oldmfhd.length + oldtfhd.length + newtfdt.length;
 
     const newSegmentArray = boxes.map((box: IParsedSegment) => {
       if(box.name === "moof") {
         box.content = newmoof;
+        box.length = be4toi(newmoof, 0);
       }
       return box;
     });
@@ -1198,10 +1203,11 @@ export default {
       if (oldmoofContent.length - newmoof.length >= 8 /* minimum "free" atom size */) {
         const a =
           patchSegmentInPlace(newSegmentArray, newmoof, oldmoofContent, trunoffset);
+          console.log(a.toString() === _segment.toString());
         return a;
       } else {
         const a = createNewSegment(newSegmentArray, trunoffset);
-        debugger;
+        console.log(a.toString() === _segment.toString());
         return a;
       }
     }
