@@ -70,7 +70,7 @@
     "lint:demo": "eslint demo/**/*.js",
     "lint:tests": "eslint tests/**/*.js",
     "standalone": "RXP_ENV=development node ./tools/server.standalone.js",
-    "start": "RXP_ENV=development node ./tools/server.js",
+    "start": "RXP_ENV=development node ./tools/server.js -w",
     "test": "karma start tests/karma.conf.js",
     "test:chrome": "karma start tests/karma.conf.js --browsers Chrome",
     "test:coverage": "RXP_COVERAGE=true karma start tests/karma.conf.js --browsers Chrome,Firefox",

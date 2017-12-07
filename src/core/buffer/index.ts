@@ -314,7 +314,6 @@ function Buffer({
       function appendSegment() : Observable<any> {
         const append$ = segmentData != null ?
           bufferingQueue.appendBuffer(segmentData) : Observable.of(null);
-
         return append$.do(validateSegment);
       }
 

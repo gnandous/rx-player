@@ -30,6 +30,7 @@ function hashBuffer(buffer : Uint8Array|number[]) : number {
   return hash;
 }
 
+window.hashbuff = hashBuffer;
 /**
  * Convert given init data to a 32bit integer hash
  * @param {Array|TypedArray|number} buffer

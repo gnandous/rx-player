@@ -807,7 +807,7 @@ function patchTrunDataOffset(
  * @returns {Uint8Array}
  */
 function createNewSegment(
-  segments : Array<{
+  boxes : Array<{
     name: string;
     content: Uint8Array;
   }>,
@@ -817,18 +817,18 @@ function createNewSegment(
     accumulator: number,
     currentValue: number
   ) => accumulator + currentValue;
-  const segmentlen = segments.map((segment) => segment.content.length).reduce(reducer);
+  const segmentlen = boxes.map((box) => box.content.length).reduce(reducer);
   const newSegment = new Uint8Array(segmentlen);
   let k = 0;
-  for(let i = 0; i<segments.length; i++){
+  for(let i = 0; i<boxes.length; i++){
     newSegment.set(
-      segments[i].content,
+      boxes[i].content,
       k
     );
-    k += segments[i].content.length;
+    k += boxes[i].content.length;
   }
   const mooflen =
-    (segments.find((segment) => segment.name === "moof") as any).content.length;
+    (boxes.find((box) => box.name === "moof") as any).content.length;
   patchTrunDataOffset(newSegment, trunoffset, mooflen + 8);
   return newSegment;
 }
@@ -842,7 +842,7 @@ function createNewSegment(
  * @returns {Uint8Array}
  */
 function patchSegmentInPlace(
-  segments : Array<{
+  boxes : Array<{
     name: string;
     content: Uint8Array;
   }>,
@@ -853,9 +853,9 @@ function patchSegmentInPlace(
   const free = oldmoof.length - newmoof.length;
   const freeAtom = atoms.free(free);
 
-  for(let i = 0; i<segments.length; i++){
-    if(segments[i].name === "moof"){
-      segments.splice(i+1, 0, {
+  for(let i = 0; i<boxes.length; i++){
+    if(boxes[i].name === "moof"){
+      boxes.splice(i+1, 0, {
         name: "free",
         content: freeAtom,
       });
@@ -868,15 +868,15 @@ function patchSegmentInPlace(
     currentValue: number
   ) => accumulator + currentValue;
 
-  const segmentlen = segments.map((segment) => segment.content.length).reduce(reducer);
+  const segmentlen = boxes.map((box) => box.content.length).reduce(reducer);
   const newSegment = new Uint8Array(segmentlen);
   let k = 0;
-  for(let j = 0; j<segments.length; j++){
+  for(let j = 0; j<boxes.length; j++){
     newSegment.set(
-      segments[j].content,
+      boxes[j].content,
       k
     );
-    k += segments[j].content.length;
+    k += boxes[j].content.length;
   }
 
   patchTrunDataOffset(newSegment, trunoffset, newmoof.length + 8 + free);
@@ -1130,7 +1130,6 @@ export default {
    * @return {Uint8Array}
    */
   patchSegment(_segment : Uint8Array, decodeTime : number) : Uint8Array {
-
     function parseBoxes(seg: Uint8Array): IParsedSegment[] {
     const segmentArray = [];
     let i = 0;
@@ -1169,7 +1168,7 @@ export default {
 
     const newtfdt = atoms.tfdt(decodeTime);
     // force trackId=1 since trackIds are not always reliable...
-    oldtfhd.set([0, 0, 0, 1], 12);
+    //oldtfhd.set([0, 0, 0, 1], 12);
     // TODO fallback?
     const oldsenc = reads.senc(oldtraf.content) as Uint8Array;
 
@@ -1187,7 +1186,7 @@ export default {
     const trunoffset =
       moofoffset + 8 + 8 + oldmfhd.length + oldtfhd.length + newtfdt.length;
 
-    const newSegmentArray = boxes.map((box: IParsedSegment) => {
+    const newBoxes = boxes.map((box: IParsedSegment) => {
       if(box.name === "moof") {
         box.content = newmoof;
         box.length = be4toi(newmoof, 0);
@@ -1198,17 +1197,12 @@ export default {
     // TODO(pierre): fix patchSegmentInPlace to work with IE11. Maybe
     // try to put free atom inside traf children
     if (isIE) {
-      return createNewSegment(newSegmentArray, trunoffset);
+      return createNewSegment(newBoxes, trunoffset);
     } else {
       if (oldmoofContent.length - newmoof.length >= 8 /* minimum "free" atom size */) {
-        const a =
-          patchSegmentInPlace(newSegmentArray, newmoof, oldmoofContent, trunoffset);
-          console.log(a.toString() === _segment.toString());
-        return a;
+        return patchSegmentInPlace(newBoxes, newmoof, oldmoofContent, trunoffset);
       } else {
-        const a = createNewSegment(newSegmentArray, trunoffset);
-        console.log(a.toString() === _segment.toString());
-        return a;
+        return createNewSegment(newBoxes, trunoffset);
       }
     }
   },

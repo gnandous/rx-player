@@ -135,7 +135,7 @@ export default function(
 
       let nextSegments : INextSegmentsInfos[]|undefined;
       let segmentInfos : ISegmentTimingInfos;
-
+      //const segmentData: Uint8Array = responseData;
       const indexRange = segment.indexRange;
       const sidxSegments =
         parseSidx(responseData, indexRange ? indexRange[0] : 0);
@@ -154,8 +154,7 @@ export default function(
           getISOBMFFTimingInfos(segment, responseData, sidxSegments, init);
       }
 
-      const segmentData : Uint8Array = segmentInfos.time !== -1 ?
-        mp4Utils.patchSegment(responseData, segmentInfos.time) : responseData;
+      const segmentData = mp4Utils.patchSegment(responseData, segmentInfos.time);
 
       if (nextSegments) {
         addNextSegments(representation, segmentInfos, nextSegments);
