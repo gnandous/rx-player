@@ -112,7 +112,9 @@ function replaceTokens(
         if (segment.time == null) {
           throw new Error("Segment time not defined in a $Time$ scheme");
         }
-        return processFormatedToken(segment.time - timeOffset)(_x, _y, widthStr);
+        return processFormatedToken(
+          Math.round(segment.time - timeOffset)
+        )(_x, _y, widthStr);
       });
   }
 }

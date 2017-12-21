@@ -57,6 +57,7 @@ export function parseFromMetaDocument(
     const durations : number[]
       = parsedPeriods.map((period: IParsedPeriod) => period.duration || 0);
     const totalDuration = durations.reduce((a, b) => a + b, 0);
+    const averageDuration = totalDuration / durations.length;
 
     // 2 - Find on which period playback may start
     const plg = (parsedManifests.map(man => man.presentationLiveGap)
@@ -69,7 +70,7 @@ export function parseFromMetaDocument(
       )) || 10;
       const tsbd = (parsedManifests.map(man => man.timeShiftBufferDepth)
       .reduce((acc, val) =>
-        Math.min(acc || 10, val || 10), 0
+        Math.min(acc || 0, val || 0), 0
       )) || 0;
     const playbackPosition = (Date.now() / 1000) - (documents.startTime || 0) - plg - spd;
     const elapsedLoops = Math.floor(playbackPosition / totalDuration);
@@ -128,7 +129,7 @@ export function parseFromMetaDocument(
       presentationLiveGap: plg,
       timeShiftBufferDepth: tsbd,
       duration: Infinity,
-      id: "gen-meta-man-"+generateNewId(),
+      id: "gen-metadash-man-"+generateNewId(),
       maxSegmentDuration:
         parsedManifests.map(man => man.maxSegmentDuration)
           .reduce((acc, val) => Math.min((acc || 0),(val || 0)), 0),
@@ -138,7 +139,8 @@ export function parseFromMetaDocument(
       profiles: "urn:mpeg:dash:profile:isoff-live:2011",
       periods: newPeriods,
       suggestedPresentationDelay: spd,
-      transportType: "meta-dash",
+      minimumUpdatePeriod: averageDuration / 2,
+      transportType: "metadash",
       type: "dynamic",
       uris: [baseURL || ""],
     };
