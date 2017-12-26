@@ -45,6 +45,11 @@ function handleCanSeek(
     .share();
 }
 
+/**
+ * @param {HTMLMediaElement} videoElement
+ * @param {boolean} autoPlay
+ * @returns {Observable}
+ */
 function handleCanPlay(
   videoElement : HTMLMediaElement,
   autoPlay : boolean

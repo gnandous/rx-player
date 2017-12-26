@@ -19,7 +19,7 @@ import { BehaviorSubject } from "rxjs/BehaviorSubject";
 import { Observable } from "rxjs/Observable";
 import { Subject } from "rxjs/Subject";
 import config from "../../config";
-import Representation from "../../manifest/representation";
+import { Representation } from "../../manifest";
 import log from "../../utils/log";
 import { SupportedBufferTypes } from "../types";
 import BandwidthEstimator from "./bandwidth_estimator";

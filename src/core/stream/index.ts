@@ -348,7 +348,7 @@ export default function Stream({
 
     /**
      * Translate errors coming from the video element into RxPlayer errors
-     * through an Observable
+     * through a throwing Observable.
      * @type {Observable}
      */
     const mediaErrorHandler$ = createMediaErrorHandler(videoElement);

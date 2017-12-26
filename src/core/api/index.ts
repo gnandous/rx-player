@@ -21,13 +21,11 @@
  */
 
 import deepEqual = require("deep-equal");
-
 import { BehaviorSubject } from "rxjs/BehaviorSubject";
 import { Observable } from "rxjs/Observable";
 import { ReplaySubject } from "rxjs/ReplaySubject";
 import { Subject } from "rxjs/Subject";
 import { Subscription } from "rxjs/Subscription";
-
 import config from "../../config";
 import assert from "../../utils/assert";
 import EventEmitter from "../../utils/eventemitter";
@@ -56,31 +54,32 @@ import {
   ErrorCodes,
   ErrorTypes,
 } from "../../errors";
-import Transports from "../../net";
-import { IBifThumbnail } from "../../parsers/images/bif";
-import Stream, {
-  IStreamEvent,
-} from "../stream";
-import { SupportedBufferTypes } from "../types";
-
-import Manifest from "../../manifest";
-import Adaptation from "../../manifest/adaptation";
-import Period from "../../manifest/period";
-import Representation from "../../manifest/representation";
+import Manifest, {
+  Adaptation,
+  Period,
+  Representation,
+} from "../../manifest";
 import {
   fromWallClockTime,
   getMaximumBufferPosition,
   getMinimumBufferPosition,
   toWallClockTime,
 } from "../../manifest/timings";
-
+import Transports from "../../net";
+import { IBifThumbnail } from "../../parsers/images/bif";
 import ABRManager from "../abr";
 import {
   clearEME,
   dispose as emeDispose,
   getCurrentKeySystem,
 } from "../eme";
-
+import Stream, {
+  IStreamEvent,
+} from "../stream";
+import { SupportedBufferTypes } from "../types";
+import createClock, {
+  IClockTick
+} from "./clock";
 import { PLAYER_STATES } from "./constants";
 import LanguageManager, {
   IAudioTrackConfiguration,
@@ -90,11 +89,6 @@ import LanguageManager, {
   ILMTextTrackList,
   ITextTrackConfiguration,
 } from "./language_manager";
-
-import createClock, {
-  IClockTick
-} from "./clock";
-
 import {
   IConstructorOptions,
   ILoadVideoOptions,

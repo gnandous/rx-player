@@ -15,7 +15,7 @@
  */
 
 import arrayFindIndex = require("array-find-index");
-import Representation from "../../manifest/representation";
+import { Representation } from "../../manifest";
 
 /**
  * @param {Array.<Object>} representations - The representations array

@@ -80,6 +80,9 @@ function getSeekings$(clock$ : Observable<IStreamClockTick>) : Observable<null> 
  *   - clock$ is the given clock$ observable with added informations.
  *   - seekings$ emits each time the player go in a seeking state.
  * @param {Object} manifest
+ * @param {Observable} streamClock$
+ * @param {Observable} hasDoneInitialSeek$
+ * @param {Number} startTime
  * @returns {Object}
  */
 export default function createBufferClock(

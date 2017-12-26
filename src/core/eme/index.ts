@@ -190,7 +190,7 @@ function getCurrentKeySystem() : string|null {
 /**
  * Perform EME management if needed.
  * @param {HTMLMediaElement} videoElement
- * @param {Array.<Object>} [keySystems]
+ * @param {Array.<Object>} keySystems
  * @param {Subject} errorStream
  * @returns {Observable}
  */

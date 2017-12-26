@@ -17,11 +17,6 @@
 import objectAssign = require("object-assign");
 import { Observable } from "rxjs/Observable";
 import { Subject } from "rxjs/Subject";
-import arrayIncludes from "../../utils/array-includes";
-import castToObservable from "../../utils/castToObservable";
-import noop from "../../utils/noop";
-import tryCatch from "../../utils/rx-tryCatch";
-
 import config from "../../config";
 import {
   CustomError,
@@ -35,7 +30,10 @@ import {
   ILoaderProgress,
   ILoaderResponse,
 } from "../../net/types";
-
+import arrayIncludes from "../../utils/array-includes";
+import castToObservable from "../../utils/castToObservable";
+import noop from "../../utils/noop";
+import tryCatch from "../../utils/rx-tryCatch";
 import downloadingBackoff from "./backoff";
 
 export interface IPipelineError {

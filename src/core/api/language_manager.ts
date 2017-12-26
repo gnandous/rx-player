@@ -21,7 +21,7 @@
 
 import arrayFind = require("array-find");
 import { Subject } from "rxjs/Subject";
-import Adaptation from "../../manifest/adaptation";
+import { Adaptation } from "../../manifest";
 
 export interface IAudioTrackConfiguration {
   language : string;

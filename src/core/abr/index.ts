@@ -16,10 +16,8 @@
 
 import { Observable } from "rxjs/Observable";
 import { Subject } from "rxjs/Subject";
-
+import { Representation } from "../../manifest";
 import { SupportedBufferTypes } from "../types";
-
-import Representation from "../../manifest/representation";
 import RepresentationChooser, {
   IRepresentationChooserClockTick,
   IRequest,

@@ -17,14 +17,14 @@
 import { Observable } from "rxjs/Observable";
 import { Subject } from "rxjs/Subject";
 import { CustomError } from "../../errors";
-import Segment from "../../manifest/segment";
+import { Segment } from "../../manifest";
 import generateID from "../../utils/id";
 import {
   IABRMetric,
   IABRRequest
 } from "../abr";
-import { PipelineEvent } from "../pipelines/pipeline";
 import { SupportedBufferTypes } from "../types";
+import { PipelineEvent } from "./pipeline";
 
 /**
  * TODO merge with regular pipeline?

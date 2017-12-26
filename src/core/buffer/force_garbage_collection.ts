@@ -18,7 +18,7 @@ import { Observable } from "rxjs/Observable";
 import config from "../../config";
 import log from "../../utils/log";
 import { getInnerAndOuterTimeRanges } from "../../utils/ranges";
-import QueuedSourceBuffer from "../source_buffers/queued_source_buffer";
+import { QueuedSourceBuffer } from "../source_buffers";
 
 const GC_GAP_CALM = config.BUFFER_GC_GAPS.CALM;
 const GC_GAP_BEEFY = config.BUFFER_GC_GAPS.BEEFY;

@@ -18,14 +18,14 @@ import { BehaviorSubject } from "rxjs/BehaviorSubject";
 import { Observable } from "rxjs/Observable";
 import { ErrorTypes } from "../../errors";
 import Manifest, {
+  Adaptation,
+  Period,
+  Representation,
 } from "../../manifest";
-import Adaptation from "../../manifest/adaptation";
-import Period from "../../manifest/period";
-import Representation from "../../manifest/representation";
 import { ISegmentLoaderArguments } from "../../net/types";
 import log from "../../utils/log";
 import ABRManager from "../abr";
-import QueuedSourceBuffer from "../source_buffers/queued_source_buffer";
+import { QueuedSourceBuffer } from "../source_buffers";
 import { SegmentBookkeeper } from "../stream/segment_bookkeeper";
 import { SupportedBufferTypes } from "../types";
 import RepresentationBuffer, {
@@ -141,20 +141,69 @@ export default class AdaptationBufferManager {
     pipeline : (content : ISegmentLoaderArguments) => Observable<any>,
     content : { manifest : Manifest; period : Period; adaptation : Adaptation }
   ) : Observable<IAdaptationBufferEvent> {
-    const wantedBufferAhead$ = this._wantedBufferAhead$;
+
     const { manifest, period, adaptation } = content;
+    const wantedBufferAhead$ = this._wantedBufferAhead$;
     const abr$ = this._getABRForAdaptation(manifest, adaptation);
 
-    const representation$ = abr$
+    /**
+     * Emit at each bitrate estimate done by the ABRManager
+     * @type {Observable}
+     */
+    const bitrateEstimate$ = abr$
+      .filter(({ bitrate } : { bitrate? : number }) => bitrate != null)
+      .map(({ bitrate } : { bitrate? : number }) => {
+        return {
+          type: "bitrateEstimationChange" as "bitrateEstimationChange",
+          value: {
+            type: adaptation.type,
+            bitrate,
+          },
+        };
+      });
+
+    /**
+     * Emit the chosen representation each time it changes.
+     * @type {Observable}
+     */
+    const representation$ : Observable<Representation> = abr$
       .map(abr => abr.representation)
       .distinctUntilChanged((a, b) =>
         !a || !b || (a.bitrate === b.bitrate && a.id === b.id)
       ) as Observable<Representation>;
 
+    /**
+     * Emit each times the RepresentationBuffer should be re-initialized:
+     *   - Each time the Representation change
+     *   - Each time the user seek
+     * @type {Observable}
+     */
     const shouldSwitchRepresentationBuffer$ : Observable<Representation> =
       Observable.combineLatest(representation$, this._seeking$)
         .map(([representation]) => representation);
 
+    /**
+     * @type {Observable}
+     */
+    const buffer$ = shouldSwitchRepresentationBuffer$
+      .switchMap((representation) =>
+        Observable.of({
+          type: "representationChange" as "representationChange",
+          value: {
+            type: adaptation.type,
+            representation,
+          },
+        }).concat(createRepresentationBuffer(representation))
+      );
+
+    return Observable.merge(buffer$, bitrateEstimate$);
+
+    /**
+     * Create and returns a new RepresentationBuffer Observable, linked to the
+     * given Representation.
+     * @param {Representation} representation
+     * @returns {Observable}
+     */
     function createRepresentationBuffer(
       representation : Representation
     ) : Observable<IRepresentationBufferEvent> {
@@ -174,7 +223,8 @@ export default class AdaptationBufferManager {
         wantedBufferAhead$,
       })
       .catch((error) => {
-        // TODO only for smooth?
+        // TODO only for smooth/to Delete?
+        // TODO Do it in the stream?
         // for live adaptations, handle 412 errors as precondition-
         // failed errors, ie: we are requesting for segments before they
         // exist
@@ -195,30 +245,6 @@ export default class AdaptationBufferManager {
           .mergeMap(() => createRepresentationBuffer(representation));
       });
     }
-
-    const buffer$ = shouldSwitchRepresentationBuffer$
-      .switchMap((representation) =>
-        Observable.of({
-          type: "representationChange" as "representationChange",
-          value: {
-            type: adaptation.type,
-            representation,
-          },
-        }).concat(createRepresentationBuffer(representation))
-      );
-
-    const bitrateEstimate$ = abr$
-      .filter(({ bitrate } : { bitrate? : number }) => bitrate != null)
-      .map(({ bitrate } : { bitrate? : number }) => {
-        return {
-          type: "bitrateEstimationChange" as "bitrateEstimationChange",
-          value: {
-            type: adaptation.type,
-            bitrate,
-          },
-        };
-      });
-    return Observable.merge(buffer$, bitrateEstimate$);
   }
 
   private _getABRForAdaptation(
@@ -266,6 +292,7 @@ export default class AdaptationBufferManager {
   }
 }
 
+// Re-export RepresentationBuffer events used by the AdaptationBufferManager
 export {
   IAddedSegmentEvent,
   IBufferActiveEvent,

@@ -185,8 +185,7 @@ function getBufferPaddings(
  *
  * Multiple RepresentationBuffer observables can be ran on the same
  * SourceBuffer.
- *
- * This allows for example smooth playback of multiple periods.
+ * This allows for example smooth transitions between multiple periods.
  *
  * @param {Object} opt
  * @returns {Observable}

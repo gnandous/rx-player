@@ -28,7 +28,7 @@ export interface ISpeedManagerOptions {
  * stall and restore the speed once it appears to un-stall.
  *
  * @param {HTMLMediaElement} videoElement
- * @param {BehaviorSubject} speed$ - emit speed set by the user
+ * @param {Observable} speed$ - emit speed set by the user
  * @param {Observable} clock$
  * @param {Object} options
  * @param {Boolean} [options.pauseWhenStalled=true] - true if the player

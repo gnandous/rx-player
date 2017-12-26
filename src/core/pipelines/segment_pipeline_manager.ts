@@ -17,10 +17,8 @@
 import { Observable } from "rxjs/Observable";
 import { Subject } from "rxjs/Subject";
 import { CustomError } from "../../errors";
-// import Segment from "../../manifest/segment";
 import { ITransportPipelines } from "../../net";
 import { ISegmentLoaderArguments } from "../../net/types";
-// import generateID from "../../utils/id";
 import {
   IABRMetric,
   IABRRequest
