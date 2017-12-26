@@ -15,14 +15,15 @@
  */
 
 import { ReplaySubject } from "rxjs/ReplaySubject";
-import Manifest from "../../manifest";
-import Adaptation from "../../manifest/adaptation";
-import Period from "../../manifest/period";
+import Manifest, {
+  Adaptation,
+  Period,
+} from "../../manifest";
 import ABRManager from "../abr";
 import {
   IAdaptationBufferEvent,
   IRepresentationChangeEvent,
-} from "../buffer/types";
+} from "../buffer";
 import { ISessionEvent } from "../eme/session";
 import { SupportedBufferTypes } from "../types";
 import { IStallingItem } from "./stalling_manager";
@@ -36,16 +37,15 @@ export interface IAdaptationChangeEvent {
 }
 
 // Subjects given to allow a choice between the different adaptations available
-export type IAdaptationsSubject =
-  Record<SupportedBufferTypes, ReplaySubject<Adaptation|null>>;
+export type IAdaptationsSubject = Partial<
+  Record<SupportedBufferTypes, ReplaySubject<Adaptation|null>>
+>;
 
-export interface IManifestChangeEvent {
-  type : "manifestChange";
+export interface IStreamStartedEvent {
+  type : "started";
   value : {
-    manifest : Manifest;
-    period : Period;
-    adaptations$ : IAdaptationsSubject;
     abrManager : ABRManager;
+    manifest : Manifest;
   };
 }
 
@@ -74,9 +74,22 @@ export interface IStreamLoadedEvent {
 export interface IPeriodChangeEvent {
   type : "periodChange";
   value : {
-    manifest : Manifest;
-      period : Period;
-      adaptations$ : IAdaptationsSubject;
+    period : Period;
+  };
+}
+
+export interface IPreparePeriodEvent {
+  type : "periodReady";
+  value : {
+    period : Period;
+    adaptations$ : IAdaptationsSubject;
+  };
+}
+
+export interface IFinishedPeriodEvent {
+  type : "finishedPeriod";
+  value : {
+    period : Period;
   };
 }
 
@@ -101,19 +114,12 @@ const STREAM_EVENTS = {
     };
   },
 
-  manifestChange(
-    abrManager : ABRManager,
-    manifest : Manifest,
-    period : Period,
-    adaptations$ : IAdaptationsSubject
-  ) : IManifestChangeEvent {
+  started(abrManager : ABRManager, manifest : Manifest) : IStreamStartedEvent {
     return {
-      type: "manifestChange",
+      type: "started",
       value: {
-        manifest,
-        period,
-        adaptations$,
         abrManager,
+        manifest,
       },
     };
   },
@@ -141,17 +147,11 @@ const STREAM_EVENTS = {
     };
   },
 
-  periodChange(
-    manifest : Manifest,
-    period : Period,
-    adaptations$ : IAdaptationsSubject
-  ) : IPeriodChangeEvent {
+  periodChange(period : Period) : IPeriodChangeEvent {
     return {
       type : "periodChange",
       value : {
-        manifest,
         period,
-        adaptations$,
       },
     };
   },
@@ -165,18 +165,42 @@ const STREAM_EVENTS = {
       },
     };
   },
+
+  periodReady(
+    period : Period,
+    adaptations$ : IAdaptationsSubject
+  ) : IPreparePeriodEvent {
+    return {
+      type: "periodReady",
+      value: {
+        period,
+        adaptations$,
+      },
+    };
+  },
+
+  finishedPeriod(period : Period) : IFinishedPeriodEvent {
+    return {
+      type: "finishedPeriod",
+      value: {
+        period,
+      },
+    };
+  },
 };
 
 // Every possible item emitted by the Stream
 export type IStreamEvent =
+  IAdaptationBufferEvent |
   IAdaptationChangeEvent |
-  IManifestChangeEvent |
+  IFinishedPeriodEvent |
   IManifestUpdateEvent |
+  IPeriodChangeEvent |
+  IPreparePeriodEvent |
+  ISessionEvent |
   ISpeedChangedEvent |
   IStalledEvent |
   IStreamLoadedEvent |
-  IAdaptationBufferEvent |
-  IPeriodChangeEvent |
-  ISessionEvent;
+  IStreamStartedEvent;
 
 export default STREAM_EVENTS;

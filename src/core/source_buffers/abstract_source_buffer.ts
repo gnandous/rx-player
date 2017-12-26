@@ -39,7 +39,7 @@ export interface ICustomSourceBuffer<T> {
  * @class AbstractSourceBuffer
  * @extends EventEmitter
  */
-abstract class AbstractSourceBuffer<T>
+export default abstract class AbstractSourceBuffer<T>
   extends EventEmitter
   implements ICustomSourceBuffer<T>
 {
@@ -117,7 +117,3 @@ abstract class AbstractSourceBuffer<T>
     this.trigger("updateend");
   }
 }
-
-export {
-  AbstractSourceBuffer,
-};

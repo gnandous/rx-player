@@ -15,11 +15,12 @@
  */
 
 import { Observable } from "rxjs/Observable";
+import { QueuedSourceBuffer } from "../../source_buffers";
 import BufferGarbageCollector from "./garbage_collector";
-import QueuedSourceBuffer from "./queued_source_buffer";
 
 /**
- * Keep track of a single BufferGarbageCollector per QueuedSourceBuffer.
+ * Keep track of a single and shared BufferGarbageCollector per
+ * QueuedSourceBuffer.
  *
  * @example
  * ```js
@@ -71,7 +72,7 @@ export default class GarbageCollectorMemory {
         clock$: this._clock$,
         maxBufferBehind$: this._maxBufferBehind$,
         maxBufferAhead$: this._maxBufferAhead$,
-      });
+      }).share();
       this._garbageCollectorMemory.set(queuedSourceBuffer, garbageCollector);
       return garbageCollector;
     } else {
@@ -86,3 +87,5 @@ export default class GarbageCollectorMemory {
     this._garbageCollectorMemory.delete(queuedSourceBuffer);
   }
 }
+
+export { BufferGarbageCollector };

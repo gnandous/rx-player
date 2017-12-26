@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import QueuedSourceBuffer from "../source_buffers/queued_source_buffer";
-import SegmentBookkeeper from "../source_buffers/segment_bookkeeper";
+import { QueuedSourceBuffer } from "../../source_buffers";
+import SegmentBookkeeper from "./segment_bookkeeper";
 
 /**
  * Keep track of a single SegmentBookkeeper per QueuedSourceBuffer.
@@ -23,7 +23,7 @@ import SegmentBookkeeper from "../source_buffers/segment_bookkeeper";
  * @example
  * ```js
  * const segmentBookkeepers = new SegmentBookkeeperManager();
- * const AudioSegmentBookkeeper = segmentBookkeepers.get(queuedSourceBuffer);
+ * const segmentBookkeeper = segmentBookkeepers.get(queuedSourceBuffer);
  *
  * //...
  *
@@ -69,3 +69,5 @@ export default class SegmentBookkeeperManager {
     this._segmentBookkeeperMemory.delete(queuedSourceBuffer);
   }
 }
+
+export { SegmentBookkeeper };

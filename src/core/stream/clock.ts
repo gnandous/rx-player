@@ -18,7 +18,7 @@ import objectAssign = require("object-assign");
 import { Observable } from "rxjs/Observable";
 import Manifest from "../../manifest";
 import { getMaximumBufferPosition } from "../../manifest/timings";
-import { IBufferClockTick } from "../buffer/types";
+import { IBufferClockTick } from "../buffer";
 
 // Object emitted when the stream's clock tick
 export interface IStreamClockTick {

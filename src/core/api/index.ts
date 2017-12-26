@@ -120,19 +120,40 @@ interface IPositionUpdateItem {
  * @extends EventEmitter
  */
 class Player extends EventEmitter {
+  /**
+   * Current version of the RxPlayer.
+   * @type {string}
+   */
   public readonly version : string;
+
+  /**
+   * Video element attached to the RxPlayer.
+   * @type {HTMLMediaElement|null}
+   */
   public videoElement : HTMLMediaElement|null; // null on dispose
+
+  /**
+   * Logger the RxPlayer uses.
+   * @type {Object}
+   */
   public log : ILogger;
+
+  /**
+   * Current state of the RxPlayer.
+   * @type {string}
+   */
   public state : string;
 
   /**
    * Emit when the player is disposed to perform clean-up.
+   * @private
    * @type {Subject}
    */
   private _priv_destroy$ : Subject<void>;
 
   /**
    * Emit when a video is stopped to perform clean-up.
+   * @private
    * @type {Subject}
    */
   private _priv_unsubscribeLoadedVideo$ : Subject<void>;
@@ -140,18 +161,22 @@ class Player extends EventEmitter {
   /**
    * Emit warnings coming from the Stream.
    * TODO Use regular Stream observable for that
+   * @private
    * @type {Subject}
    */
   private _priv_errorStream$ : Subject<Error|CustomError>;
 
   /**
-   * Emit false when the player is in a "paused" state, true otherwise
+   * Emit false when the player is in a "paused" state, true when it goes in
+   * a "playing" state.
+   * @private
    * @type {ReplaySubject}
    */
   private _priv_playing$ : ReplaySubject<boolean>;
 
   /**
    * Last speed set by the user.
+   * @private
    * @type {BehaviorSubject>}
    */
   private _priv_speed$ : BehaviorSubject<number>;
@@ -159,24 +184,28 @@ class Player extends EventEmitter {
   /**
    * Emit true when the Stream is cleaning-up and thus cannot be re-created
    * before this asynchronous process is finished.
+   * @private
    * @type {BehaviorSubject}
    */
   private _priv_streamLock$ : BehaviorSubject<boolean>;
 
   /**
    * Wanted buffer goal.
+   * @private
    * @type {BehaviorSubject}
    */
   private _priv_wantedBufferAhead$ : BehaviorSubject<number>;
 
   /**
    * Maximum kept buffer ahead in the current position, in seconds.
+   * @private
    * @type {BehaviorSubject}
    */
   private _priv_maxBufferAhead$ : BehaviorSubject<number>;
 
   /**
    * Maximum kept buffer behind in the current position, in seconds.
+   * @private
    * @type {BehaviorSubject}
    */
   private _priv_maxBufferBehind$ : BehaviorSubject<number>;
@@ -184,6 +213,7 @@ class Player extends EventEmitter {
   /**
    * Store last bitrates for each type for ABRManager instanciation.
    * Store the initial wanted bitrates at first.
+   * @private
    * @type {Object}
    */
   private _priv_lastBitrates : {
@@ -195,6 +225,7 @@ class Player extends EventEmitter {
 
   /**
    * Store last wanted maxAutoBitrates for the next ABRManager instanciation.
+   * @private
    * @type {Object}
    */
   private _priv_initialMaxAutoBitrates : {
@@ -206,6 +237,7 @@ class Player extends EventEmitter {
 
   /**
    * Store last wanted manual bitrates for the next ABRManager instanciation.
+   * @private
    * @type {Object}
    */
   private _priv_manualBitrates : {
@@ -217,6 +249,7 @@ class Player extends EventEmitter {
 
   /**
    * Store current representations for the loaded content.
+   * @private
    * @type {Object}
    */
   private _priv_currentRepresentations : {
@@ -228,6 +261,7 @@ class Player extends EventEmitter {
 
   /**
    * Store current adaptations for the loaded content.
+   * @private
    * @type {Object}
    */
   private _priv_currentAdaptations : {
@@ -238,31 +272,43 @@ class Player extends EventEmitter {
   };
 
   /**
+   * Store current period for the loaded content.
+   * @private
+   * @type {Object}
+   */
+  private _priv_currentPeriod : Period|null;
+
+  /**
    * Store wanted configuration for the limitVideoWidth option.
+   * @private
    * @type {boolean}
    */
   private readonly _priv_limitVideoWidth : boolean;
 
   /**
    * Store wanted configuration for the throttleWhenHidden option.
+   * @private
    * @type {boolean}
    */
   private readonly _priv_throttleWhenHidden : boolean;
 
   /**
    * Store volume when mute is called, to restore it on unmute.
+   * @private
    * @type {Number}
    */
   private _priv_mutedMemory : number;
 
   /**
    * Store default audio track for a loaded content.
+   * @private
    * @type {undefined|null|Object}
    */
   private _priv_initialAudioTrack : undefined|null|IAudioTrackConfiguration;
 
   /**
    * Store default text track for a loaded content.
+   * @private
    * @type {undefined|null|Object}
    */
   private _priv_initialTextTrack : undefined|null|ITextTrackConfiguration;
@@ -271,6 +317,7 @@ class Player extends EventEmitter {
    * LanguageManager instance linked to the current content.
    * Null if no content has been loaded or if the current content loaded
    * has no LanguageManager.
+   * @private
    * @type {Object|null}
    */
   private _priv_languageManager : LanguageManager|null;
@@ -279,6 +326,7 @@ class Player extends EventEmitter {
    * ABRManager instance linked to the current content.
    * Null if no content has been loaded or if the current content loaded
    * has no ABRManager.
+   * @private
    * @type {Object|null}
    */
   private _priv_abrManager : ABRManager|null;
@@ -287,12 +335,14 @@ class Player extends EventEmitter {
    * Manifest linked to the current content.
    * Null if no content has been loaded or if the current content loaded
    * has no manifest.
+   * @private
    * @type {Object|null}
    */
-  private _priv_manifest : Manifest|null;
+  private _priv_currentManifest : Manifest|null;
 
   /**
    * Events memory, to avoid re-triggering the same event twice.
+   * @private
    * @type {Object}
    */
   private _priv_recordedEvents : IDictionary<any>; // TODO?
@@ -301,6 +351,7 @@ class Player extends EventEmitter {
    * Current fatal error which STOPPED the player.
    * Null when the player is not STOPPED anymore or if STOPPED but not due to
    * an error.
+   * @private
    * @type {Error|null}
    */
   private _priv_fatalError : Error|null;
@@ -309,7 +360,8 @@ class Player extends EventEmitter {
    * Current Image Track Data associated to the content.
    * Null if no content has been loaded or if the current content has no
    * image playlist linked to it.
-   * @param {Object|null}
+   * @private
+   * @type {Object|null}
    */
   private _priv_currentImagePlaylist : IBifThumbnail[]|null;
 
@@ -445,9 +497,10 @@ class Player extends EventEmitter {
     this._priv_languageManager = null;
     this._priv_abrManager = null;
 
-    this._priv_manifest = null;
+    this._priv_currentManifest = null;
     this._priv_currentRepresentations = {};
     this._priv_currentAdaptations = {};
+    this._priv_currentPeriod = null;
 
     this._priv_recordedEvents = {}; // event memory
 
@@ -730,7 +783,15 @@ class Player extends EventEmitter {
    * @returns {Manifest|null}
    */
   getManifest() : Manifest|null {
-    return this._priv_manifest || null;
+    return this._priv_currentManifest || null;
+  }
+
+  /**
+   * Returns the current Period.
+   * @returns {Object|null}
+   */
+  getCurrentPeriod() : Period|null {
+    return this._priv_currentPeriod;
   }
 
   /**
@@ -739,7 +800,7 @@ class Player extends EventEmitter {
    * @returns {Object|null}
    */
   getCurrentAdaptations() {
-    if (!this._priv_manifest){
+    if (!this._priv_currentManifest){
       return null;
     }
     return this._priv_currentAdaptations;
@@ -751,7 +812,7 @@ class Player extends EventEmitter {
    * @returns {Object|null}
    */
   getCurrentRepresentations() {
-    if (!this._priv_manifest){
+    if (!this._priv_currentManifest){
       return null;
     }
     return this._priv_currentRepresentations;
@@ -799,10 +860,10 @@ class Player extends EventEmitter {
    * @returns {Boolean}
    */
   isLive() : boolean {
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       return false;
     }
-    return this._priv_manifest.isLive;
+    return this._priv_currentManifest.isLive;
   }
 
   /**
@@ -810,10 +871,10 @@ class Player extends EventEmitter {
    * @returns {string|undefined}
    */
   getUrl() : string|undefined {
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       return undefined;
     }
-    return this._priv_manifest.getUrl();
+    return this._priv_currentManifest.getUrl();
   }
 
   /**
@@ -888,12 +949,12 @@ class Player extends EventEmitter {
     if (!this.videoElement) {
       throw new Error("Disposed player");
     }
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       return 0;
     }
     const ct = this.videoElement.currentTime;
     return this.isLive() ?
-      (+toWallClockTime(ct, this._priv_manifest) / 1000) : ct;
+      (+toWallClockTime(ct, this._priv_currentManifest) / 1000) : ct;
   }
 
   /**
@@ -1058,7 +1119,7 @@ class Player extends EventEmitter {
     time : number | { relative : number } | { position : number } |
     { wallClockTime : number }
   ) : number {
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       throw new Error("player: no manifest loaded");
     }
     if (!this.videoElement) {
@@ -1077,7 +1138,7 @@ class Player extends EventEmitter {
       } else if ((time as { position? : number }).position != null) {
         positionWanted = (time as { position : number }).position;
       } else if ((time as { wallClockTime? : number }).wallClockTime != null) {
-        const manifest = this._priv_manifest;
+        const manifest = this._priv_currentManifest;
         positionWanted = fromWallClockTime(
           (time as { wallClockTime : number }).wallClockTime * 1000,
           manifest
@@ -1270,6 +1331,7 @@ class Player extends EventEmitter {
   }
 
   /**
+   * Returns every available audio tracks for the current Period.
    * @returns {Array.<Object>|null}
    */
   getAvailableAudioTracks() : ILMAudioTrackList | null {
@@ -1280,6 +1342,7 @@ class Player extends EventEmitter {
   }
 
   /**
+   * Returns every available text tracks for the current Period.
    * @returns {Array.<Object>|null}
    */
   getAvailableTextTracks() : ILMTextTrackList | null {
@@ -1290,7 +1353,7 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Returns last chosen language.
+   * Returns currently chosen audio language for the current Period.
    * @returns {string}
    */
   getAudioTrack() : ILMAudioTrack|null|undefined {
@@ -1301,7 +1364,7 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Returns last chosen subtitle.
+   * Returns currently chosen subtitle for the current Period.
    * @returns {string}
    */
   getTextTrack() : ILMTextTrack|null|undefined {
@@ -1312,7 +1375,7 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Update the audio language.
+   * Update the audio language for the current Period.
    * @param {string} audioId
    * @throws Error - the current content has no LanguageManager.
    * @throws Error - the given id is linked to no audio track.
@@ -1330,7 +1393,7 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Update the audio language.
+   * Update the text language for the current Period.
    * @param {string} sub
    * @throws Error - the current content has no LanguageManager.
    * @throws Error - the given id is linked to no text track.
@@ -1347,6 +1410,9 @@ class Player extends EventEmitter {
     }
   }
 
+  /**
+   * Disable subtitles for the current Period.
+   */
   disableTextTrack() : void {
     if (!this._priv_languageManager) {
       return;
@@ -1354,8 +1420,11 @@ class Player extends EventEmitter {
     return this._priv_languageManager.disableTextTrack();
   }
 
+  /**
+   * @returns {Array.<Object>|null}
+   */
   getImageTrackData() : IBifThumbnail[] | null {
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       return null;
     }
     return this._priv_currentImagePlaylist;
@@ -1366,10 +1435,10 @@ class Player extends EventEmitter {
    * @returns {number}
    */
   getMinimumPosition() : number|null {
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       return null;
     }
-    return getMinimumBufferPosition(this._priv_manifest);
+    return getMinimumBufferPosition(this._priv_currentManifest);
   }
 
   /**
@@ -1377,10 +1446,10 @@ class Player extends EventEmitter {
    * @returns {number}
    */
   getMaximumPosition() : number|null {
-    if (!this._priv_manifest) {
+    if (!this._priv_currentManifest) {
       return null;
     }
-    return getMaximumBufferPosition(this._priv_manifest);
+    return getMaximumBufferPosition(this._priv_currentManifest);
   }
 
   /**
@@ -1395,20 +1464,26 @@ class Player extends EventEmitter {
     this._priv_initialTextTrack = undefined;
     this._priv_languageManager = null;
 
+    // ABR management
     if (this._priv_abrManager) {
       this._priv_abrManager.dispose();
       this._priv_abrManager = null;
     }
 
-    this._priv_manifest = null;
+    // manifest
     this._priv_currentRepresentations = {};
     this._priv_currentAdaptations = {};
+    this._priv_currentPeriod = null;
+    this._priv_currentManifest = null;
 
-    this._priv_recordedEvents = {}; // event memory
+    // event memory
+    this._priv_recordedEvents = {};
 
+    // misc
     this._priv_fatalError = null;
     this._priv_currentImagePlaylist = null;
 
+    // EME cleaning
     const freeUpStreamLock = () => {
       this._priv_streamLock$.next(false);
     };
@@ -1439,23 +1514,29 @@ class Player extends EventEmitter {
    */
   private _priv_onStreamNext(streamInfos : IStreamEvent) : void {
     switch (streamInfos.type) {
-      case "periodChange":
-        this._priv_onPeriodChange(streamInfos.value);
+      case "periodReady":
+        this._priv_onPeriodReady(streamInfos.value);
+        break;
+      case "finishedPeriod":
+        this._priv_onFinishedPeriod(streamInfos.value);
         break;
       case "representationChange":
         this._priv_onRepresentationChange(streamInfos.value);
         break;
-      case "manifestUpdate":
-        this._priv_onManifestUpdate(streamInfos.value);
-        break;
       case "adaptationChange":
         this._priv_onAdaptationChange(streamInfos.value);
+        break;
+      case "periodChange":
+        this._priv_onPeriodChange(streamInfos.value);
+        break;
+      case "manifestUpdate":
+        this._priv_onManifestUpdate(streamInfos.value);
         break;
       case "bitrateEstimationChange":
         this._priv_onBitrateEstimationChange(streamInfos.value);
         break;
-      case "manifestChange":
-        this._priv_onManifestChange(streamInfos.value);
+      case "started":
+        this._priv_onStreamStarted(streamInfos.value);
         break;
       case "added-segment":
         const { bufferType, parsed } = streamInfos.value;
@@ -1513,35 +1594,55 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Called when the manifest is first downloaded.
-   *
+   * Called when the stream starts.
    * @param {Object} value
    * @param {Manifest} value.manifest - The Manifest instance
-   * @param {Period} value.period - The period which will be first played.
-   * @param {Object} value.adaptations$ - Subjects to emit the chosen
-   * adaptation for each type from the given period.
    * @param {Object} abrManager - ABR manager which can be used to select the
    * wanted bandwidth.
    */
-  private _priv_onManifestChange(value : {
+  private _priv_onStreamStarted(value : {
+    abrManager : ABRManager;
     manifest : Manifest;
+  }) : void {
+    const { manifest, abrManager } = value;
+    this._priv_currentManifest = manifest;
+    this._priv_abrManager = abrManager;
+
+    // XXX TODO To remove
+    this._priv_languageManager =
+      new LanguageManager(manifest.periods[0].adaptations, {
+        audio$: new Subject(),
+        text$: new Subject(),
+      });
+    this.trigger("manifestChange", manifest);
+  }
+
+  /**
+   * Triggered each times the stream "prepares" a new Period, and
+   * needs the API to sent it its chosen adaptations.
+   * @param {Object} value
+   * @param {Object} value.period
+   * @param {Object} value.adaptations
+   */
+  private _priv_onPeriodReady(value : {
     period : Period;
     adaptations$ : {
-      audio : Subject<Adaptation|null>;
-      video : Subject<Adaptation|null>;
-      text : Subject<Adaptation|null>;
-      image : Subject<Adaptation|null>;
+      audio? : Subject<Adaptation|null>;
+      video? : Subject<Adaptation|null>;
+      text? : Subject<Adaptation|null>;
+      image? : Subject<Adaptation|null>;
     };
-    abrManager : ABRManager;
   }) : void {
-    const { manifest, period, adaptations$ } = value;
-    this._priv_manifest = manifest;
+    const { period, adaptations$ } = value;
+
+    const audio$ = adaptations$.audio || new Subject();
+    const text$ = adaptations$.text || new Subject();
 
     // set language management for audio and text
     this._priv_languageManager =
       new LanguageManager(period.adaptations, {
-        audio$: adaptations$.audio,
-        text$: adaptations$.text,
+        audio$,
+        text$,
       });
 
     // set initial adaptations
@@ -1560,56 +1661,31 @@ class Player extends EventEmitter {
           this._priv_languageManager
             .setInitialTextTrack(this._priv_initialTextTrack);
         } else {
-          const adaptation$ = adaptations$[bufferType as "image"|"video" ];
-          adaptation$.next(adaptations[0]);
+          const adaptation$ = adaptations$[bufferType as SupportedBufferTypes];
+          (adaptation$ as Subject<Adaptation|null>).next(adaptations[0]);
         }
       }
     }
-
-    this._priv_abrManager = value.abrManager;
-
-    this.trigger("manifestChange", manifest);
   }
 
   /**
    * Triggered each time the period considered by the stream changes.
-   * Should emit the chosen adaptations for this given period.
-   *
    * @param {Object} value
    * @param {Object} value.period
-   * @param {Object} value.adaptations$
    */
   private _priv_onPeriodChange(value : {
     period : Period;
-    adaptations$ : {
-      audio : Subject<Adaptation|null>;
-      video : Subject<Adaptation|null>;
-      text : Subject<Adaptation|null>;
-      image : Subject<Adaptation|null>;
-    };
   }) : void {
-    const { period, adaptations$ } = value;
-    const adaptationsPerType = period.adaptations;
+    const { period } = value;
+    this._priv_currentPeriod = period;
+    this.trigger("periodChange", value.period);
+  }
 
-    if (this._priv_languageManager) {
-      this._priv_languageManager.updateAdaptations(adaptationsPerType);
-    }
-
-    // set initial adaptations
-    for (const bufferType of Object.keys(adaptations$)) {
-      const adaptations = period.getAdaptationsForType(
-        bufferType as SupportedBufferTypes
-      );
-
-      // if we have adaptations for the given type, make a choice.
-      // if we do not, do not emit anything for it.
-      if (adaptations.length) {
-        if (bufferType !== "audio" && bufferType !== "text") {
-          const adaptation$ = adaptations$[bufferType as "image"|"video" ];
-          adaptation$.next(adaptations[0]);
-        }
-      }
-    }
+  private _priv_onFinishedPeriod(value : {
+    period : Period;
+  }) : void {
+    // XXX TODO
+    log.warn(value.period, this._priv_languageManager);
   }
 
   private _priv_onManifestUpdate(value : { manifest : Manifest }) : void {
@@ -1618,9 +1694,10 @@ class Player extends EventEmitter {
     }
 
     const { manifest } = value;
-    this._priv_manifest = manifest;
+    this._priv_currentManifest = manifest;
 
     if (this._priv_languageManager) {
+      // XXX TODO
       this._priv_languageManager.updateAdaptations(manifest.adaptations);
     }
 
@@ -1640,8 +1717,6 @@ class Player extends EventEmitter {
     adaptation : Adaptation|null;
   }) : void {
     this._priv_currentAdaptations[type] = adaptation;
-
-    // TODO Emit adaptationChange?
 
     if (!this._priv_languageManager) {
       return;
@@ -1737,7 +1812,7 @@ class Player extends EventEmitter {
    * @param {Object} timing
    */
   private _priv_triggerTimeChange(timing : IClockTick) : void {
-    if (!this._priv_manifest || !timing) {
+    if (!this._priv_currentManifest || !timing) {
       return;
     }
 
@@ -1750,12 +1825,12 @@ class Player extends EventEmitter {
       bufferGap: isFinite(timing.bufferGap) ? timing.bufferGap : 0,
     };
 
-    if (this._priv_manifest.isLive && timing.currentTime > 0) {
+    if (this._priv_currentManifest.isLive && timing.currentTime > 0) {
       positionData.wallClockTime =
-        toWallClockTime(timing.currentTime, this._priv_manifest)
+        toWallClockTime(timing.currentTime, this._priv_currentManifest)
           .getTime() / 1000;
       positionData.liveGap =
-        getMaximumBufferPosition(this._priv_manifest) - timing.currentTime;
+        getMaximumBufferPosition(this._priv_currentManifest) - timing.currentTime;
     }
 
     this.trigger("positionUpdate", positionData);

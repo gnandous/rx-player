@@ -14,10 +14,14 @@
  * limitations under the License.
  */
 
-import { IBufferSegmentInfos } from "../core/buffer/types";
-
 import getRightIndexHelpers from "./indexes/index";
 import Segment from "./segment";
+
+export interface IRepresentationIndexSegmentInfos {
+  duration : number;
+  time : number;
+  timescale : number;
+}
 
 // TODO fix this mess
 interface IRepresentationIndexIndexArguments {
@@ -114,8 +118,8 @@ class RepresentationIndex {
       timescale : number;
     }>,
     currentSegment : { duration : number; time : number; timescale : number}
-  ) : IBufferSegmentInfos[] {
-    const addedSegments : IBufferSegmentInfos[] = [];
+  ) : IRepresentationIndexSegmentInfos[] {
+    const addedSegments : IRepresentationIndexSegmentInfos[] = [];
     for (let i = 0; i < nextSegments.length; i++) {
       if (
         this._indexHelpers._addSegmentInfos(

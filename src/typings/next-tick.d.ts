@@ -14,26 +14,10 @@
  * limitations under the License.
  */
 
-import { IBifThumbnail } from "../../../parsers/images/bif";
-import AbstractSourceBuffer from "../abstract_source_buffer";
+declare module "next-tick" {
+  function nextTick(
+    fn : () => void
+  ) : void;
 
-// TODO
-class ImageSourceBuffer
-  extends AbstractSourceBuffer<IBifThumbnail[]>
-{
-  _append() {
-    // TODO: handle live case.
-    // We suppose here that the first received bsi includes all images
-    this.buffered.insert(0, Number.MAX_VALUE);
-  }
-
-  /* tslint:disable no-empty */
-  _remove() {}
-  /* tslint:enable no-empty */
-
-  /* tslint:disable no-empty */
-  _abort() {}
-  /* tslint:enable no-empty */
+  export = nextTick;
 }
-
-export default ImageSourceBuffer;

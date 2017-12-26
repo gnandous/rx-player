@@ -21,10 +21,17 @@ import { normalize as normalizeLang } from "../utils/languages";
 import log from "../utils/log";
 import Adaptation, {
   AdaptationType,
+  IAdaptationArguments,
 } from "./adaptation";
 import Period, {
   IPeriodArguments,
 } from "./period";
+import Representation, {
+  IRepresentationArguments,
+} from "./representation";
+import Segment, {
+  ISegmentArguments,
+} from "./segment";
 
 type ManifestAdaptations = Partial<Record<AdaptationType, Adaptation[]>>;
 
@@ -59,7 +66,7 @@ export interface IManifestArguments {
  * Normalized Manifest structure.
  * @class Manifest
  */
-class Manifest {
+export default class Manifest {
   public id : string;
   public transport : string;
   public adaptations : ManifestAdaptations;
@@ -196,13 +203,28 @@ class Manifest {
   }
 
   /**
+   * Returns Period encountered at the given time.
+   * Returns undefined if there is no Period exactly at the given time.
    * @param {number} time
-   * @returns {Period|undefine}
+   * @returns {Period|undefined}
    */
   getPeriodForTime(time : number) : Period|undefined {
     return this.periods.find(period => {
      return time >= period.start &&
         (period.end == null || period.end > time);
+    });
+  }
+
+  /**
+   * Returns first period encountered during or after a given
+   * time.
+   * Returns undefined if there's no Period at or after the time asked.
+   * @param {number} time
+   * @returns {Period|undefined}
+   */
+  getNextPeriod(time : number) : Period|undefined {
+    return this.periods.find(period => {
+      return period.end == null || time < period.end;
     });
   }
 
@@ -321,4 +343,14 @@ class Manifest {
   }
 }
 
-export default Manifest;
+export {
+  Period,
+  Adaptation,
+  Representation,
+  Segment,
+
+  IPeriodArguments,
+  IAdaptationArguments,
+  IRepresentationArguments,
+  ISegmentArguments,
+};

@@ -20,9 +20,7 @@
  */
 
 import arrayFind = require("array-find");
-
 import { Subject } from "rxjs/Subject";
-
 import Adaptation from "../../manifest/adaptation";
 
 export interface IAudioTrackConfiguration {
@@ -126,6 +124,16 @@ const findAudioAdaptation = (
   return foundAudioTrack;
 };
 
+// XXX TODO
+// type IPeriodLanguageItem = {
+//   chosenTextAdaptation? : Adaptation|null;
+//   chosenAudioAdaptation? : Adaptation|null;
+//   textAdaptations : Adaptation[];
+//   audioAdaptations : Adaptation[];
+//   text$? : Subject<Adaptation|null>;
+//   audio$? : Subject<Adaptation|null>;
+// };
+
 /**
  * # LanguageManager
  *
@@ -136,6 +144,7 @@ const findAudioAdaptation = (
  * language configuration.
  */
 class LanguageManager {
+  // private _periodsItems : Map<Period, IPeriodLanguageItem>;
   private _currentTextAdaptation? : Adaptation|null;
   private _currentAudioAdaptation? : Adaptation|null;
   private _textAdaptations : Adaptation[];
@@ -201,6 +210,134 @@ class LanguageManager {
     this._text$ = text$;
     this._audio$ = audio$;
   }
+
+  // XXX TODO
+  // /**
+  //  * @constructor
+  //  * @param {Object} value
+  //  * @param {Object|null} [value.initialAudioTrack]
+  //  * @param {Object|null} [value.initialTextTrack]
+  //  */
+  // constructor(options : {
+  //   initialAudioTrack? : AudioTrackPreference;
+  //   initialTextTrack? : TextTrackPreference;
+  // }) {
+  //   this._initialAudioTrack = initialAudioTrack;
+  //   this._initialTextTrack = initialAudioTrack;
+  //   this._periodsItems = new Map();
+  // }
+
+  // addPeriod(period : Period, { text$, audio$ } : {
+  //   text$? : Subject<Adaptation|null>;
+  //   audio$? : Subject<Adaptation|null>;
+  // }) {
+  //   const audioAdaptations = period.adaptations.audio || [];
+  //   const textAdaptations = period.adaptations.text || [];
+  //   const languageItem : IPeriodLanguageItem = {
+  //     chosenTextAdaptation: void 0,
+  //     chosenAudioAdaptation : void 0,
+  //     audioAdaptations,
+  //     textAdaptations,
+  //     text$,
+  //     audio$,
+  //   };
+  //   this._periods.set(Period, languageItem);
+  // }
+
+  // removePeriod(period : Period) : void {
+  //   this._periods.remove(period);
+  // }
+
+  // resetLanguages() {
+  //   this._periods.forEach(period => this.setDefaultLanguagesForPeriod(period));
+  // }
+
+  // setDefaultLanguagesForPeriod(period : Period) : void {
+  //   const periodItems = this._periods.get(period);
+  //
+  //   if (!periodItems) {
+  //     throw new Error("Language Manager: Period not found");
+  //   }
+  //
+  //   if (periodItems.audio$) {
+  //     let chosenAudioAdaptation;
+
+  //     if (this._audioTrackDefaultChoice) {
+  //       chosenAudioAdaptation =
+  //       chosenAudioAdaptation = null;
+  //     }
+
+  //     if (chosenAudioAdaptation === undefined) {
+  //       chosenAudioAdaptation = audioAdaptations[0] || null;
+  //     }
+
+  //     if (chosenAudioAdaptation !== periodItems.chosenAudioAdaptation) {
+  //       periodItems.chosenAudioAdaptation = chosenAudioAdaptation;
+  //       periodItems.audio$.next(this._currentAudioAdaptation);
+  //     }
+  //   }
+  //
+  //   if (periodItems.text$) {
+  //     let chosenTextAdaptation;
+
+  //     if (this._textTrackDefaultChoice) {
+  //       chosenTextAdaptation =
+  //         findTextAdaptation(textAdaptations, this._textTrackDefaultChoice);
+  //     } else if (this._textTrackDefaultChoice === null) {
+  //       chosenTextAdaptation = null;
+  //     }
+
+  //     if (chosenTextAdaptation === undefined) {
+  //       chosenTextAdaptation = textAdaptations[0] || null;
+  //     }
+
+  //     if (chosenTextAdaptation !== periodItems.chosenTextAdaptation) {
+  //       periodItems.chosenTextAdaptation = chosenTextAdaptation;
+  //       periodItems.text$.next(this._currentTextAdaptation);
+  //     }
+  //   }
+  // }
+
+  // getAudioTracksForPeriod(period : Period) {
+  //   const periodItems = this._periods.get(period);
+  //
+  //   if (!periodItems) {
+  //     throw new Error("Language Manager: Period not found");
+  //   }
+  //
+  //   const currentTrack = periodItems.chosenAudioAdaptation;
+  //   const audioAdaptations = periodItems.audioAdaptations;
+  //   const currentId = currentTrack && currentTrack.id;
+  //   return audioAdaptations
+  //     .map((adaptation) => ({
+  //       language: adaptation.language || "",
+  //       normalized: adaptation.normalizedLanguage || "",
+  //       audioDescription: !!adaptation.isAudioDescription,
+  //       id: adaptation.id,
+  //       active: currentId == null ? false : currentId === adaptation.id,
+  //     }));
+  // }
+
+  // getTextTracksForPeriod(period : Period) {
+  //   const periodItems = this._periods.get(period);
+
+  //   if (!periodItems) {
+  //     throw new Error("Language Manager: Period not found");
+  //   }
+
+  //   const currentTrack = periodItems.chosenTextAdaptation;
+  //   const textAdaptations = periodItems.textAdaptations;
+  //    const currentTrack = this._currentTextAdaptation;
+  //    const currentId = currentTrack && currentTrack.id;
+  //    return textAdaptations
+  //      .map((adaptation) => ({
+  //        language: adaptation.language || "",
+  //        normalized: adaptation.normalizedLanguage || "",
+  //        closedCaption: !!adaptation.isClosedCaption,
+  //        id: adaptation.id,
+  //        active: currentId == null ? false : currentId === adaptation.id,
+  //   }));
+  // }
 
   /**
    * Update the adaptations in the current content.

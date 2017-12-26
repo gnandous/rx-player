@@ -16,10 +16,9 @@
 
 import { addTextTrack } from "../../../../compat";
 import log from "../../../../utils/log";
-import {
-  AbstractSourceBuffer,
+import AbstractSourceBuffer, {
   ICustomSourceBuffer,
-} from "../../abstract";
+} from "../../abstract_source_buffer";
 import parseTextTrackToCues from "./parsers";
 
 export interface INativeTextTrackData {

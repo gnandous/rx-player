@@ -15,9 +15,9 @@
  */
 
 import { Observable } from "rxjs/Observable";
-import log from "../../utils/log";
-import { getInnerAndOuterTimeRanges } from "../../utils/ranges";
-import QueuedSourceBuffer from "./queued_source_buffer";
+import log from "../../../utils/log";
+import { getInnerAndOuterTimeRanges } from "../../../utils/ranges";
+import { QueuedSourceBuffer } from "../../source_buffers";
 
 /**
  * Perform cleaning of the buffer according to the values set by the user

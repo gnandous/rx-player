@@ -20,7 +20,7 @@ import log from "../../utils/log";
 import EVENTS, {
   IManifestUpdateEvent,
   IStreamEvent,
-} from "./events";
+} from "./stream_events";
 
 /**
  * Re-fetch the manifest and merge it with the previous version.

@@ -22,21 +22,144 @@ import {
   IndexError,
   MediaError,
 } from "../../errors";
-import Adaptation from "../../manifest/adaptation";
-// import Representation from "../../manifest/representation";
-import Segment from "../../manifest/segment";
+import Manifest, {
+  Adaptation,
+  Period,
+  Representation,
+  Segment,
+} from "../../manifest";
+import { ISegmentLoaderArguments } from "../../net/types";
 import { SimpleSet } from "../../utils/collections";
 import log from "../../utils/log";
+import { QueuedSourceBuffer } from "../source_buffers";
+import { SegmentBookkeeper } from "../stream/segment_bookkeeper";
+import { SupportedBufferTypes } from "../types";
 import forceGarbageCollection from "./force_garbage_collection";
 import getWantedBufferRange from "./get_wanted_range";
-import {
-  IBufferArguments,
-  IBufferClockTick,
-  IBufferSegmentInfos,
-  IDownloaderResponse,
-  IRepresentationBufferEvent,
-  IRepresentationBufferStatus,
-} from "./types";
+
+// Emitted when a new segment has been added to the SourceBuffer
+export interface IAddedSegmentEvent {
+  type : "added-segment";
+  value : {
+    bufferType : SupportedBufferTypes;
+    parsed : {
+      segmentData : any;
+      segmentInfos? : IBufferSegmentInfos;
+    };
+  };
+}
+
+// The Manifest needs to be refreshed.
+// The buffer might still download segments after this message
+export interface INeedingManifestRefreshEvent {
+  type : "needs-manifest-refresh";
+  value : Error;
+}
+
+// Emit when a discontinuity is encountered and the user is "stuck" on it.
+export interface IDiscontinuityEvent {
+  type : "discontinuity-encountered";
+  value : {
+    nextTime : number;
+  };
+}
+
+// Emit when the buffer has reached its end in term of segment downloads.
+// The Buffer does not download segments after this message
+export interface IBufferFullEvent {
+  type: "full";
+  value : {
+    wantedRange : {
+      start : number;
+      end : number;
+    };
+  };
+}
+
+// Emit when segments are being queued for download
+// The Buffer emits this message just before downloading new segments
+export interface IBufferActiveEvent {
+  type: "segments-queued";
+  value : {
+    segments: Segment[]; // The downloaded segments
+    wantedRange : {
+      start : number;
+      end : number;
+    };
+  };
+}
+
+// For internal usage. Emitted when the Buffer is wainting on segments to be
+// downloaded.
+interface IWaitingBufferEvent {
+  type : "waiting";
+  value : {
+    wantedRange : {
+      start : number;
+      end : number;
+    };
+  };
+}
+
+// For internal usage. Emitted when the Buffer is completely inactive (it has
+// downloaded all needed segments) but not full.
+interface IIdleBufferEvent {
+  type : "idle";
+  value : undefined;
+}
+
+export interface IBufferSegmentInfos {
+  duration : number;
+  time : number;
+  timescale : number;
+}
+
+// Response that should be emitted by the given Pipeline
+export interface IPipelineResponse {
+  parsed: {
+    segmentData : any;
+    segmentInfos : IBufferSegmentInfos;
+  };
+}
+
+// Item emitted by the Buffer's clock$
+export interface IBufferClockTick {
+  currentTime : number;
+  readyState : number;
+  timeOffset : number;
+  stalled : object|null;
+  liveGap? : number;
+}
+
+// Arguments to give to the Buffer
+export interface IRepresentationBufferArguments {
+  clock$ : Observable<IBufferClockTick>;
+  content: {
+    representation : Representation;
+    adaptation : Adaptation;
+    period : Period;
+    manifest : Manifest;
+  };
+  queuedSourceBuffer : QueuedSourceBuffer<any>;
+  segmentBookkeeper : SegmentBookkeeper;
+  pipeline : (x : ISegmentLoaderArguments) => Observable<IPipelineResponse>;
+  wantedBufferAhead$ : Observable<number>;
+}
+
+// Events emitted by the Buffer
+export type IRepresentationBufferEvent =
+  IAddedSegmentEvent |
+  INeedingManifestRefreshEvent |
+  IDiscontinuityEvent |
+  IBufferActiveEvent |
+  IBufferFullEvent;
+
+// For internal use. Buffer statuses.
+type IRepresentationBufferStatus =
+  IBufferActiveEvent |
+  IBufferFullEvent |
+  IIdleBufferEvent |
+  IWaitingBufferEvent;
 
 const { BITRATE_REBUFFERING_RATIO } = config;
 
@@ -60,8 +183,10 @@ function getBufferPaddings(
  * Download and push segments linked to the given Representation according
  * to what is already in the SourceBuffer.
  *
- * Multiple RepresentationBuffer can be ran on the same SourceBuffer. This
- * allows for example smooth playback of multiple periods.
+ * Multiple RepresentationBuffer observables can be ran on the same
+ * SourceBuffer.
+ *
+ * This allows for example smooth playback of multiple periods.
  *
  * @param {Object} opt
  * @returns {Observable}
@@ -73,7 +198,7 @@ export default function RepresentationBuffer({
   segmentBookkeeper,
   pipeline,
   wantedBufferAhead$,
-} : IBufferArguments) : Observable<IRepresentationBufferEvent> {
+} : IRepresentationBufferArguments) : Observable<IRepresentationBufferEvent> {
   const {
     manifest,
     period,
@@ -312,7 +437,7 @@ export default function RepresentationBuffer({
    * Check what should be done with the current buffer.
    *
    * The returned status indicates whether the buffer should download segments,
-   * or if it is filled, finished, idle etc.
+   * or if it is full, finished, idle etc.
    * @param {Object} timing
    * @param {number} bufferGoal
    * @param {Number} injectCount
@@ -353,16 +478,9 @@ export default function RepresentationBuffer({
         },
       };
     } else if (queuedSegments.isEmpty()) {
-      if (limits.end != null && timing.currentTime >= limits.end) {
+      if (limits.end != null && wantedRange.end >= limits.end) {
         return {
-          type: "finished",
-          value: {
-            wantedRange,
-          },
-        };
-      } else if (limits.end != null && wantedRange.end >= limits.end) {
-        return {
-          type: "filled",
+          type: "full",
           value: {
             wantedRange,
           },
@@ -380,7 +498,7 @@ export default function RepresentationBuffer({
    */
   function loadNeededSegments(
     segment : Segment
-  ) : Observable<{ segment : Segment } & IDownloaderResponse> {
+  ) : Observable<{ segment : Segment } & IPipelineResponse> {
     return pipeline({
       adaptation,
       init: initSegmentInfos || undefined,
