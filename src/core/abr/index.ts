@@ -311,7 +311,6 @@ export default class ABRManager {
   /**
    * If it doesn't exist, create a RepresentationChooser under the
    * _choosers[bufferType] property.
-   * @param {ABRManager} intce
    * @param {string} bufferType
    */
   private _lazilyCreateChooser(bufferType : SupportedBufferTypes) {
