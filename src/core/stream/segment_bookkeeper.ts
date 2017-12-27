@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-import config from "../../../config";
+import config from "../../config";
 import {
   Adaptation,
   Period,
   Representation,
   Segment,
-} from "../../../manifest";
-import log from "../../../utils/log";
-import { convertToRanges } from "../../../utils/ranges";
-import takeFirstSet from "../../../utils/takeFirstSet";
+} from "../../manifest";
+import log from "../../utils/log";
+import { convertToRanges } from "../../utils/ranges";
+import takeFirstSet from "../../utils/takeFirstSet";
 
 const {
   MAX_TIME_MISSING_FROM_COMPLETE_SEGMENT,

@@ -32,7 +32,7 @@ import { ISegmentLoaderArguments } from "../../net/types";
 import { SimpleSet } from "../../utils/collections";
 import log from "../../utils/log";
 import { QueuedSourceBuffer } from "../source_buffers";
-import { SegmentBookkeeper } from "../stream/segment_bookkeeper";
+import { SegmentBookkeeper } from "../stream";
 import { SupportedBufferTypes } from "../types";
 import forceGarbageCollection from "./force_garbage_collection";
 import getWantedBufferRange from "./get_wanted_range";
@@ -526,7 +526,7 @@ export default function RepresentationBuffer({
       return Observable.empty();
     }
 
-    log.debug("Buffer status:", bufferStatus.type, bufferStatus.value, representation);
+    log.debug("Buffer status:", bufferStatus.type, bufferStatus.value, content);
 
     if (bufferStatus.type === "segments-queued") {
       const neededSegments = bufferStatus.value.segments;

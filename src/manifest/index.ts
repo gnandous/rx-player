@@ -216,6 +216,22 @@ export default class Manifest {
   }
 
   /**
+   * Returns period coming just after a given period.
+   * Returns undefined if not found.
+   * @param {Period} period
+   * @returns {Period|undefined}
+   */
+  getPeriodAfter(period : Period) : Period|undefined {
+    const endOfPeriod = period.end;
+    if (endOfPeriod == null) {
+      return period;
+    }
+    return this.periods.find(_period => {
+      return _period.end == null || endOfPeriod < _period.end;
+    });
+  }
+
+  /**
    * Returns first period encountered during or after a given
    * time.
    * Returns undefined if there's no Period at or after the time asked.

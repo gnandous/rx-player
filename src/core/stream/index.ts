@@ -21,6 +21,7 @@ import config from "../../config";
 import log from "../../utils/log";
 import { retryableFuncWithBackoff } from "../../utils/retry";
 import throttle from "../../utils/rx-throttle";
+import WeakMapMemory from "../../utils/weak_map_memory";
 
 import { onSourceOpen$ } from "../../compat/events";
 import {
@@ -47,6 +48,7 @@ import {
   SegmentPipelinesManager,
 } from "../pipelines";
 import SourceBufferManager, {
+  QueuedSourceBuffer,
   SourceBufferOptions,
 } from "../source_buffers";
 import { SupportedBufferTypes } from "../types";
@@ -56,21 +58,20 @@ import createBufferClock, {
 import createMediaSource, {
   setDurationToMediaSource,
 } from "./create_media_source";
-import GarbageCollectors from "./garbage_collector";
+import BufferGarbageCollector from "./garbage_collector";
 import getInitialTime, {
   IInitialTimeOptions,
 } from "./get_initial_time";
+import handleBuffers from "./handle_buffers";
 import liveEventsHandler from "./live_events_handler";
 import createMediaErrorHandler from "./media_error_handler";
-import SegmentBookkeepers from "./segment_bookkeeper";
+import SegmentBookkeeper from "./segment_bookkeeper";
 import SpeedManager from "./speed_manager";
 import StallingManager from "./stalling_manager";
 import EVENTS, {
   IStreamEvent,
 } from "./stream_events";
 import handleInitialVideoEvents from "./video_events";
-
-import handleBuffers from "./handle_buffers";
 
 const { END_OF_PLAY } = config;
 
@@ -154,13 +155,30 @@ export default function Stream({
     supplementaryImageTracks
   ));
 
-  // TODO Move both of those with the source buffer part
-  const garbageCollectors = new GarbageCollectors(
-    timings$.map(timing => timing.currentTime),
-    maxBufferBehind$,
-    maxBufferAhead$
-  );
-  const segmentBookkeepers = new SegmentBookkeepers();
+  /**
+   * Keep track of a unique BufferGarbageCollector created per
+   * QueuedSourceBuffer.
+   * @type {WeakMapMemory}
+   */
+  const garbageCollectors =
+    new WeakMapMemory((qSourceBuffer : QueuedSourceBuffer<any>) =>
+      BufferGarbageCollector({
+        queuedSourceBuffer: qSourceBuffer,
+        clock$: timings$.map(timing => timing.currentTime),
+        maxBufferBehind$,
+        maxBufferAhead$,
+      })
+    );
+
+  /**
+   * Keep track of a unique segmentBookkeeper created per
+   * QueuedSourceBuffer.
+   * @type {WeakMapMemory}
+   */
+  const segmentBookkeepers =
+    new WeakMapMemory<QueuedSourceBuffer<any>, SegmentBookkeeper>(() =>
+      new SegmentBookkeeper()
+    );
 
   /**
    * @see retryWithBackoff
@@ -391,4 +409,5 @@ export default function Stream({
 
 export {
   IStreamEvent,
+  SegmentBookkeeper,
 };

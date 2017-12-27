@@ -26,7 +26,7 @@ import { ISegmentLoaderArguments } from "../../net/types";
 import log from "../../utils/log";
 import ABRManager from "../abr";
 import { QueuedSourceBuffer } from "../source_buffers";
-import { SegmentBookkeeper } from "../stream/segment_bookkeeper";
+import { SegmentBookkeeper } from "../stream";
 import { SupportedBufferTypes } from "../types";
 import RepresentationBuffer, {
   IAddedSegmentEvent,

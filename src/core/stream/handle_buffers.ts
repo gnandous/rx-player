@@ -25,22 +25,21 @@ import Manifest, {
 import arrayIncludes from "../../utils/array-includes";
 import InitializationSegmentCache from "../../utils/initialization_segment_cache";
 import log from "../../utils/log";
+import WeakMapMemory from "../../utils/weak_map_memory";
 import BufferManager, {
   IAdaptationBufferEvent,
-  IBufferActiveEvent,
   IBufferClockTick,
-  // IBufferFullEvent,
 } from "../buffer";
 import {
   IPipelineOptions,
   SegmentPipelinesManager,
 } from "../pipelines";
 import SourceBufferManager, {
+  QueuedSourceBuffer,
   SourceBufferOptions,
 } from "../source_buffers";
 import { SupportedBufferTypes } from "../types";
-import GarbageCollectors from "./garbage_collector";
-import SegmentBookkeepers from "./segment_bookkeeper";
+import SegmentBookkeeper from "./segment_bookkeeper";
 import EVENTS, {
   IStreamEvent,
 } from "./stream_events";
@@ -67,9 +66,9 @@ import EVENTS, {
  * @param {SourceBufferManager} sourceBufferManager - Will be used to create
  * and dispose SourceBuffer instances associated with the current video.
  * @param {SegmentPipelinesManager} segmentPipelinesManager
- * @param {SegmentBookkeepers} segmentBookkeeper - Allow to easily retrieve
+ * @param {WeakMapMemory} segmentBookkeeper - Allow to easily retrieve
  * or create a unique SegmentBookkeeper per SourceBuffer
- * @param {GarbageCollectors} garbageCollectors - Allows to easily create a
+ * @param {WeakMapMemory} garbageCollectors - Allows to easily create a
  * unique Garbage Collector per SourceBuffer
  * @param {Object} sourceBufferOptions - Every SourceBuffer options, per type
  * @param {Subject} errorStream - Subject to emit minor errors
@@ -80,8 +79,8 @@ export default function handleBuffers(
   bufferManager : BufferManager,
   sourceBufferManager : SourceBufferManager,
   segmentPipelinesManager : SegmentPipelinesManager,
-  segmentBookkeepers : SegmentBookkeepers,
-  garbageCollectors : GarbageCollectors,
+  segmentBookkeepers : WeakMapMemory<QueuedSourceBuffer<any>, SegmentBookkeeper>,
+  garbageCollectors : WeakMapMemory<QueuedSourceBuffer<any>, Observable<never>>,
   sourceBufferOptions : Partial<Record<SupportedBufferTypes, SourceBufferOptions>>,
   errorStream : Subject<Error | CustomError>
 ) : Observable<IStreamEvent> { // XXX TODO
@@ -101,12 +100,17 @@ export default function handleBuffers(
     .map((adaptationType) => {
       // :/ TS does not have the intelligence to know that here
       const bufferType = adaptationType as SupportedBufferTypes;
-      return startPeriod(bufferType, firstPeriod);
+      return preparePeriod(bufferType, firstPeriod);
     });
 
   return Observable.merge(...buffersArray);
 
-  function startPeriod(
+  /**
+   * Begin buffer for a bufferType from a particular period.
+   * @param {string} bufferType
+   * @param {Period} currentPeriod
+   */
+  function preparePeriod(
     bufferType : SupportedBufferTypes,
     currentPeriod : Period
   ) : Observable<IStreamEvent> {
@@ -116,60 +120,39 @@ export default function handleBuffers(
      */
     const adaptation$ = new ReplaySubject<Adaptation|null>(1);
 
-    const periodBuffer$ = getPeriodBuffer(bufferType, firstPeriod, adaptation$)
-      .share(); // there are side-effects there
+    const destroyCurrentBuffer$ = new Subject();
+    const createNextBuffer$ = new Subject();
+    const destroyNextBuffer$ = new Subject();
 
-    // const bufferFilled$ : Observable<IBufferFilledEvent> = periodBuffer$
-    //   .filter((message) : message is IBufferFilledEvent =>
-    //     message.type === "filled"
-    //   );
+    const nextBuffer$ = createNextBuffer$
+      .exhaustMap(() => {
+        const newPeriod = manifest.getPeriodAfter(currentPeriod);
+        if (!newPeriod || newPeriod === currentPeriod) {
+          // finished
+          return Observable.empty();
+        }
 
-    // const bufferFinished$ : Observable<IBufferFinishedEvent> = periodBuffer$
-    //   .filter((message) : message is IBufferFinishedEvent =>
-    //     message.type === "finished"
-    //   );
+        log.info("creating new Buffer for", bufferType, newPeriod);
+        return preparePeriod(bufferType, newPeriod)
+          .takeUntil(destroyNextBuffer$);
+      });
+
+    const periodBuffer$ = createBufferForPeriod(bufferType, currentPeriod, adaptation$)
+      .do(({ type }) => {
+        if (type === "full") {
+          createNextBuffer$.next();
+        } else if (type === "segments-queued") {
+          destroyNextBuffer$.next();
+        }
+      })
+      .share()
+      .takeUntil(destroyCurrentBuffer$);
 
     // XXX TODO Ask the API for the wanted adaptation
     const adaptationsArr = currentPeriod.adaptations[bufferType];
     adaptation$.next(adaptationsArr ? adaptationsArr[0] : null);
 
-    const [ bufferStatus$, bufferEvents$ ] = periodBuffer$
-      .partition(message =>
-        message.type === "full" || message.type === "segments-queued"
-      );
-
-    return Observable.merge(bufferEvents$, prepareSwitchToNextPeriod());
-
-    function prepareSwitchToNextPeriod() : Observable<IStreamEvent> {
-      const onBufferFull$ = bufferStatus$
-        .filter((message) =>
-          message.type === "full"
-        );
-
-      const onBufferActive$ : Observable<IBufferActiveEvent> = bufferStatus$
-      .filter((message) : message is IBufferActiveEvent =>
-        message.type === "segments-queued"
-      );
-
-      return onBufferFull$
-        .take(1)
-        .mergeMap(() => {
-          const newPeriod = currentPeriod.end &&
-            manifest.getNextPeriod(currentPeriod.end);
-          if (!newPeriod) {
-            // finished
-            return Observable.empty();
-          }
-
-          log.info("creating new Buffer for", bufferType, newPeriod);
-          return startPeriod(bufferType, newPeriod)
-            .takeUntil(
-              onBufferActive$
-                .take(1)
-                .concat(prepareSwitchToNextPeriod())
-            );
-        });
-    }
+    return Observable.merge(periodBuffer$, nextBuffer$) as Observable<IStreamEvent>;
   }
 
   /**
@@ -179,39 +162,36 @@ export default function handleBuffers(
    * Emit null to deactivate a type of adaptation
    * @returns {Observable}
    */
-  function getPeriodBuffer(
+  function createBufferForPeriod(
     bufferType : SupportedBufferTypes,
     period: Period,
     adaptation$ : Observable<Adaptation|null>
   ) : Observable<IStreamEvent> {
     return adaptation$.switchMap((adaptation) => {
-      if (adaptation == null) {
-        log.info(`disposing ${bufferType} adaptation`);
-        sourceBufferManager.dispose(bufferType);
 
-        return Observable
-          .of(EVENTS.adaptationChange(bufferType, null))
-          .concat(Observable.of(EVENTS.nullRepresentation(bufferType)));
+      if (adaptation == null) {
+        return disposeSourceBuffer(bufferType, sourceBufferManager);
       }
 
       log.info(`updating ${bufferType} adaptation`, adaptation);
 
-      // 1 - create the SourceBuffer and its associated
-      // BufferGarbageCollector and SegmentBookkeeper
+      // 1 - create or reuse the SourceBuffer
       const codec = getFirstDeclaredMimeType(adaptation);
       const options = sourceBufferOptions[bufferType] || {};
       const queuedSourceBuffer = sourceBufferManager
         .createSourceBuffer(bufferType, codec, options);
 
+      // 2 - create or reuse its associated BufferGarbageCollector and
+      // SegmentBookkeeper
       const bufferGarbageCollector$ = garbageCollectors.get(queuedSourceBuffer);
       const segmentBookkeeper = segmentBookkeepers.get(queuedSourceBuffer);
 
-      // 2 - create the pipeline
+      // 3 - create the pipeline
       const pipelineOptions = getPipelineOptions(bufferType);
       const pipeline = segmentPipelinesManager
         .createPipeline(bufferType, pipelineOptions);
 
-      // 3 - create the Buffer
+      // 4 - create the Buffer
       const adaptationBuffer$ = bufferManager.createBuffer(
         clock$,
         queuedSourceBuffer,
@@ -228,11 +208,13 @@ export default function handleBuffers(
           errorStream.next(error);
           return Observable.empty();
         }
+
         log.error(
           "native buffer: ", bufferType, "has crashed. Stopping playback.", error);
         throw error; // else, throw
       });
 
+      // 5 - Return the buffer and send right events
       return Observable
         .of(EVENTS.adaptationChange(bufferType, adaptation))
         .concat(Observable.merge(adaptationBuffer$, bufferGarbageCollector$));
@@ -289,4 +271,21 @@ function createNativeSourceBuffersForPeriod(
       }
     }
   });
+}
+
+/**
+ * @param {string} bufferType
+ * @param {SourceBufferManager} sourceBufferManager
+ * @returns {Observable}
+ */
+function disposeSourceBuffer(
+  bufferType : SupportedBufferTypes,
+  sourceBufferManager : SourceBufferManager
+) {
+  log.info(`disposing ${bufferType} adaptation`);
+  sourceBufferManager.dispose(bufferType);
+
+  return Observable
+    .of(EVENTS.adaptationChange(bufferType, null))
+    .concat(Observable.of(EVENTS.nullRepresentation(bufferType)));
 }
