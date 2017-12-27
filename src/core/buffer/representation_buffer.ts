@@ -450,15 +450,18 @@ export default function RepresentationBuffer({
     const buffered = queuedSourceBuffer.getBuffered();
     segmentBookkeeper.synchronizeBuffered(buffered);
 
+    const basePosition = timing.currentTime + timing.timeOffset;
+    const limitEnd = timing.liveGap == null ?
+      period.end : Math.min(period.end || Infinity, basePosition + timing.liveGap);
     const limits = {
       start: Math.max(period.start, timing.currentTime + timing.timeOffset),
-      end: period.end,
-      liveGap: timing.liveGap,
+      end: limitEnd,
     };
     const wantedRange = getWantedBufferRange(
       buffered,
-      limits,
+      basePosition,
       bufferGoal,
+      limits,
       { low: LOW_PADDING, high: HIGH_PADDING }
     );
 

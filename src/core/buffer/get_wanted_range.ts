@@ -22,9 +22,17 @@ import { getLeftSizeOfRange } from "../../utils/ranges";
  *
  * @param {TimeRanges} buffered - TimeRanges coming from the concerned
  * SourceBuffer
+ * @param {Number} currentTime - Time currently played
  * @param {Object} limits
- * @param {Number} bufferGoal
- * @param {Object} paddings
+ * @param {Number} limits.start - Minimum time we should have
+ * @param {Number} [limits.end] - Maximum time we should have
+ * @param {Number} bufferGoal - Current buffer goal (minimum time ahead of the
+ * current time wanted in the buffer).
+ * @param {Object} paddings - contains two number properties: low and high.
+ * If the gap to the end of the current buffered range is superior to the low
+ * value, we will offset the start of the range, at most to the high value.
+ * This is to avoid having excessive re-buffering where we re-downloads segments
+ * already in the buffer.
  * @param {Number} paddings.low
  * @param {Number} paddings.high
  * @returns {Object} - Start and end timestamps, in seconds, under an object
@@ -34,33 +42,15 @@ import { getLeftSizeOfRange } from "../../utils/ranges";
  */
 export default function getWantedBufferRange(
   buffered : TimeRanges,
-  limits : {
-    start: number;
-    end? : number;
-    liveGap? : number;
-  },
+  currentTime : number,
   bufferGoal : number,
-  paddings : {
-    low : number;
-    high : number;
-  }
-) : {
-  start : number;
-  end : number;
-} {
+  limits : { start: number; end? : number },
+  paddings : { low : number; high : number }
+) : { start : number; end : number } {
   const { low: lowPadding, high: highPadding } = paddings;
-  const start = limits.start;
 
-  // wantedBufferSize calculates the size of the buffer we want to ensure,
-  // taking into account the min between: the set max buffer size, the
-  // duration and the live gap.
-  const endDiff = (limits.end || Infinity) - start;
-  const wantedBufferSize = Math.max(0, limits.liveGap == null ?
-    Math.min(bufferGoal, endDiff) :
-    Math.min(bufferGoal, limits.liveGap, endDiff)
-  );
-
-  const bufferGap = getLeftSizeOfRange(buffered, start);
+  // Difference between the current time and the end of the current range
+  const bufferGap = getLeftSizeOfRange(buffered, currentTime);
 
   // the ts padding is the time offset that we want to apply to our current
   // start in order to calculate the starting point of the list of
@@ -69,7 +59,11 @@ export default function getWantedBufferRange(
     Math.min(bufferGap, highPadding) : 0;
 
   return {
-    start: start + timestampPadding,
-    end: start + wantedBufferSize,
+    start: Math.min(
+      Math.max(currentTime + timestampPadding, limits.start),
+      limits.end || Infinity),
+    end: Math.min(
+      Math.max(currentTime + bufferGoal, limits.start),
+      limits.end || Infinity),
   };
 }

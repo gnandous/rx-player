@@ -106,7 +106,7 @@ export default function handleBuffers(
   return Observable.merge(...buffersArray);
 
   /**
-   * Begin buffer for a bufferType from a particular period.
+   * Begin Buffer(s) for a bufferType from a particular period.
    * @param {string} bufferType
    * @param {Period} currentPeriod
    */
@@ -120,10 +120,33 @@ export default function handleBuffers(
      */
     const adaptation$ = new ReplaySubject<Adaptation|null>(1);
 
+    /**
+     * Will emit when the current buffer is not needed anymore and
+     * can be destroyed.
+     * @type {Subject}
+     */
     const destroyCurrentBuffer$ = new Subject();
+
+    /**
+     * Will emit when the Buffer for the next Period can be created.
+     * @type {Subject}
+     */
     const createNextBuffer$ = new Subject();
+
+    /**
+     * Will emit when the Buffer for the next Period should be destroyed if
+     * created.
+     * @type {Subject}
+     */
     const destroyNextBuffer$ = new Subject();
 
+    /**
+     * Buffer for the next Period.
+     *
+     * Created when the Buffer for the current Buffer is full.
+     * Destroyed when the Buffer for the current Buffer is active.
+     * @type {Observable}
+     */
     const nextBuffer$ = createNextBuffer$
       .exhaustMap(() => {
         const newPeriod = manifest.getPeriodAfter(currentPeriod);
@@ -137,6 +160,10 @@ export default function handleBuffers(
           .takeUntil(destroyNextBuffer$);
       });
 
+    /**
+     * Buffer for the current Period.
+     * @type {Observable}
+     */
     const periodBuffer$ = createBufferForPeriod(bufferType, currentPeriod, adaptation$)
       .do(({ type }) => {
         if (type === "full") {
@@ -148,11 +175,29 @@ export default function handleBuffers(
       .share()
       .takeUntil(destroyCurrentBuffer$);
 
+    /**
+     * Observable destroying the current buffer when no longer needed.
+     * @type {Observable}
+     */
+    const destroyBuffer$ = clock$
+      .do((tick) => {
+        if (currentPeriod.end && tick.currentTime > currentPeriod.end) {
+          log.info("destroying buffer for", bufferType, currentPeriod);
+          // destroyCurrentBuffer$.next();
+        }
+      })
+      .takeUntil(destroyCurrentBuffer$)
+      .ignoreElements();
+
     // XXX TODO Ask the API for the wanted adaptation
     const adaptationsArr = currentPeriod.adaptations[bufferType];
     adaptation$.next(adaptationsArr ? adaptationsArr[0] : null);
 
-    return Observable.merge(periodBuffer$, nextBuffer$) as Observable<IStreamEvent>;
+    return Observable.merge(
+      periodBuffer$,
+      nextBuffer$,
+      destroyBuffer$
+    ) as Observable<IStreamEvent>;
   }
 
   /**
