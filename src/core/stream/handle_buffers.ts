@@ -17,7 +17,10 @@
 import { Observable } from "rxjs/Observable";
 import { ReplaySubject } from "rxjs/ReplaySubject";
 import { Subject } from "rxjs/Subject";
-import { CustomError } from "../../errors";
+import {
+  CustomError,
+  MediaError,
+} from "../../errors";
 import Manifest, {
   Adaptation,
   Period,
@@ -39,57 +42,11 @@ import SourceBufferManager, {
   SourceBufferOptions,
 } from "../source_buffers";
 import { SupportedBufferTypes } from "../types";
+import ConsecutivePeriodsList from "./consecutive_periods_list";
 import SegmentBookkeeper from "./segment_bookkeeper";
 import EVENTS, {
   IStreamEvent,
 } from "./stream_events";
-
-/**
- * Maintains a list of Buffers.
- * Adds methods to push/destroy them and to know whether is given time is before
- * or after the list of Buffers given.
- * @class BufferList
- */
-class BufferList {
-  private _buffers: Array<{
-    period: Period;
-  }>;
-
-  constructor() {
-    this._buffers = [];
-  }
-
-  push(period : Period) {
-    this._buffers.push({ period });
-  }
-
-  remove(period : Period) {
-    for (let i = 0; i < this._buffers.length; i++) {
-      if (period === this._buffers[i].period) {
-        this._buffers.splice(i);
-        return;
-      }
-    }
-  }
-
-  empty() {
-    this._buffers.length = 0;
-  }
-
-  length() {
-    return this._buffers.length;
-  }
-
-  isBefore(time : number) : boolean {
-    const buffer = this._buffers[0];
-    return !buffer || buffer.period.start > time;
-  }
-
-  isAfter(time : number) : boolean {
-    const buffer = this._buffers[this._buffers.length - 1];
-    return !buffer || (buffer.period.end != null && buffer.period.end <= time);
-  }
-}
 
 /**
  * Create and manage the various Buffer Observables needed for the content to
@@ -177,7 +134,7 @@ class BufferList {
  *
  * ----
  *
- * At the end, we should only have Buffer[s] for contiguous Period[s].
+ * At the end, we should only have Buffer[s] for consecutive Period[s].
  * The last one should always be the only one downloading content.
  * The first one should always be the one currently seen by the user.
  *
@@ -230,61 +187,91 @@ export default function handleBuffers(
 
   return Observable.merge(...buffersArray);
 
+  /**
+   * Manage creation and removal of Buffers for every Periods.
+   *
+   * Works by creating consecutive buffers through the manageConsecutiveBuffers
+   * function, and restarting it when the clock goes out of the bounds of these
+   * buffers.
+   * @param {string} bufferType - e.g. "audio" or "video"
+   * @param {Period} basePeriod - Initial Period downloaded.
+   * @returns {Observable}
+   */
   function manageAllBuffers(
     bufferType : SupportedBufferTypes,
-    initialPeriod : Period
+    basePeriod : Period
   ) : Observable<IStreamEvent> {
-    const destroy$ = new Subject<void>();
-    const buffers$ = manageContiguousBuffers(bufferType, initialPeriod, destroy$);
+    /**
+     * Keep a ConsecutivePeriodsList for cases such as seeking ahead/before the
+     * buffers already created.
+     * When that happens, interrupt the previous buffers and create one back
+     * from the new initial period.
+     * @type {ConsecutivePeriodList}
+     */
+    const periodList = new ConsecutivePeriodsList();
 
-    const next$ = clock$
-      .filter(({ currentTime }) =>
-        bufferList.isAfter(currentTime) || bufferList.isBefore(currentTime)
-      )
+    /**
+     * Destroy the current set of consecutive buffers.
+     * Used when the clocks goes out of the bounds of those, e.g. when the user
+     * seeks.
+     * We can then re-create consecutive buffers, from the new point in time.
+     * @type {Subject}
+     */
+    const destroyCurrentBuffers = new Subject<void>();
+
+    const restartBuffers$ = clock$
+      .filter(({ currentTime }) => periodList.isOutOfBounds(currentTime))
       .take(1)
       .do(() => {
-        destroy$.next();
+        destroyCurrentBuffers.next();
       })
       .mergeMap(({ currentTime }) => {
         const newInitialPeriod = manifest.getPeriodForTime(currentTime);
         if (newInitialPeriod == null) {
-          // XXX TODO
-          throw new Error();
+          throw new MediaError("MEDIA_TIME_NOT_FOUND", null, true);
         }
         return manageAllBuffers(bufferType, newInitialPeriod);
       });
 
-    // Keep a BufferList for cases such as seeking ahead/before the buffers
-    // already created.
-    // When that happens, interrupt the previous buffers and create one back
-    // from the new initial period.
-    const bufferList = new BufferList();
-    const cur$ = buffers$
-      .do((message) => {
-        if (message.type === "periodReady") {
-          log.error("XXX READY", message.value.period);
-          bufferList.push(message.value.period);
-        } else if (message.type === "finishedPeriod") {
-          log.error("XXX FINISHED", message.value.period);
-          bufferList.remove(message.value.period);
-        }
-      });
+    const currentBuffers$ = manageConsecutiveBuffers(
+      bufferType,
+      basePeriod,
+      destroyCurrentBuffers
+    ).do((message) => {
+      if (message.type === "periodReady") {
+        log.error("XXX READY", message.value.period, bufferType, basePeriod, periodList);
+        periodList.add(message.value.period);
+      } else if (message.type === "finishedPeriod") {
+        log.error("XXX FINISHED", message.value.period, bufferType, basePeriod, periodList);
+        periodList.remove(message.value.period);
+      }
+    });
 
-    return Observable.merge(cur$, next$);
+    return Observable.merge(currentBuffers$, restartBuffers$);
   }
 
   /**
-   * Create/Remove Buffers for contiguous Periods.
-   * This function is called recursively for each successive Periods as needed.
-   * @param {string} bufferType
-   * @param {Period} currentPeriod
+   * Manage creation and removal of Buffers for consecutive Periods only.
+   *
+   * This function is called recursively for each successive Periods as needed:
+   *   - Buffers for new Periods are created when the previous one is full
+   *   - Buffers for new Periods are destroyed when one of the previous one is
+   *     active again.
+   *
+   * This function does not guarantee creation/destruction of Buffers when the
+   * user seeks or rewind in the content.
+   * It only manages regular playback, another layer should be used to manage
+   * those cases.
+   *
+   * @param {string} bufferType - e.g. "audio" or "video"
+   * @param {Period} basePeriod - Initial Period downloaded.
    * @param {Observable} destroy$ - Emit when/if all created buffer from this
    * point should be destroyed.
    * @returns {Observable}
    */
-  function manageContiguousBuffers(
+  function manageConsecutiveBuffers(
     bufferType : SupportedBufferTypes,
-    currentPeriod : Period,
+    basePeriod : Period,
     destroy$ : Observable<void>
   ) : Observable<IStreamEvent> {
     /**
@@ -297,7 +284,7 @@ export default function handleBuffers(
      * The Period coming just after the current one.
      * @type {Period|undefined}
      */
-    const nextPeriod = manifest.getPeriodAfter(currentPeriod);
+    const nextPeriod = manifest.getPeriodAfter(basePeriod);
 
     /**
      * Will emit when the Buffer for the next Period can be created.
@@ -318,13 +305,13 @@ export default function handleBuffers(
      */
     const nextPeriodBuffer$ = createNextBuffers$
       .exhaustMap(() => {
-        if (!nextPeriod || nextPeriod === currentPeriod) {
+        if (!nextPeriod || nextPeriod === basePeriod) {
           // finished
           return Observable.empty();
         }
 
         log.info("creating new Buffer for", bufferType, nextPeriod);
-        return manageContiguousBuffers(bufferType, nextPeriod, destroyNextBuffers$);
+        return manageConsecutiveBuffers(bufferType, nextPeriod, destroyNextBuffers$);
       });
 
     /**
@@ -333,7 +320,7 @@ export default function handleBuffers(
      */
     const endOfCurrentBuffer$ = clock$
       .filter(({ currentTime }) =>
-        !!currentPeriod.end && currentTime > currentPeriod.end
+        !!basePeriod.end && currentTime >= basePeriod.end
       );
 
     const killCurrentBuffer$ = Observable.merge(endOfCurrentBuffer$, destroy$);
@@ -342,7 +329,7 @@ export default function handleBuffers(
      * Buffer for the current Period.
      * @type {Observable}
      */
-    const periodBuffer$ = createBufferForPeriod(bufferType, currentPeriod, adaptation$)
+    const periodBuffer$ = createBufferForPeriod(bufferType, basePeriod, adaptation$)
       .do(({ type }) => {
         if (type === "full") {
           // current buffer is full, create the next one if not
@@ -354,11 +341,11 @@ export default function handleBuffers(
       })
       .share()
       .takeUntil(killCurrentBuffer$)
-      .startWith(EVENTS.periodReady(bufferType, currentPeriod, adaptation$))
+      .startWith(EVENTS.periodReady(bufferType, basePeriod, adaptation$))
       .concat(
-        Observable.of(EVENTS.finishedPeriod(bufferType, currentPeriod))
+        Observable.of(EVENTS.finishedPeriod(bufferType, basePeriod))
           .do(() => {
-            log.info("destroying buffer for", bufferType, currentPeriod);
+            log.info("destroying buffer for", bufferType, basePeriod);
           })
       );
 
