@@ -1512,7 +1512,7 @@ class Player extends EventEmitter {
         this._priv_onPeriodReady(streamInfos.value);
         break;
       case "finishedPeriod":
-        this._priv_onFinishedPeriod(streamInfos.value);
+        // this._priv_onFinishedPeriod(streamInfos.value);
         break;
       case "representationChange":
         this._priv_onRepresentationChange(streamInfos.value);
@@ -1613,53 +1613,61 @@ class Player extends EventEmitter {
 
   /**
    * Triggered each times the stream "prepares" a new Period, and
-   * needs the API to sent it its chosen adaptations.
+   * needs the API to sent it its chosen adaptation.
    * @param {Object} value
    * @param {Object} value.period
    * @param {Object} value.adaptations
+   * XXX TODO
    */
   private _priv_onPeriodReady(value : {
+    type : SupportedBufferTypes;
     period : Period;
-    adaptations$ : {
-      audio? : Subject<Adaptation|null>;
-      video? : Subject<Adaptation|null>;
-      text? : Subject<Adaptation|null>;
-      image? : Subject<Adaptation|null>;
-    };
+    adaptation$ : Subject<Adaptation|null>;
   }) : void {
-    const { period, adaptations$ } = value;
-
-    const audio$ = adaptations$.audio || new Subject();
-    const text$ = adaptations$.text || new Subject();
-
-    // set language management for audio and text
-    this._priv_languageManager =
-      new LanguageManager(period.adaptations, {
-        audio$,
-        text$,
-      });
-
-    // set initial adaptations
-    for (const bufferType of Object.keys(adaptations$)) {
-      const adaptations = period.getAdaptationsForType(
-        bufferType as SupportedBufferTypes
-      );
-
-      // if we have adaptations for the given type, make a choice.
-      // if we do not, do not emit anything for it.
-      if (adaptations.length) {
-        if (bufferType === "audio" && this._priv_languageManager) {
-          this._priv_languageManager
-            .setInitialAudioTrack(this._priv_initialAudioTrack);
-        } else if (bufferType === "text" && this._priv_languageManager) {
-          this._priv_languageManager
-            .setInitialTextTrack(this._priv_initialTextTrack);
-        } else {
-          const adaptation$ = adaptations$[bufferType as SupportedBufferTypes];
-          (adaptation$ as Subject<Adaptation|null>).next(adaptations[0]);
-        }
-      }
+    const {
+      type,
+      period,
+      adaptation$,
+    } = value;
+    const adaptations = period.adaptations[type];
+    if (adaptations && adaptations.length) {
+      adaptation$.next(adaptations[0]);
+    } else {
+      adaptation$.next(null);
     }
+    // const { period, adaptations$ } = value;
+
+    // const audio$ = adaptations$.audio || new Subject();
+    // const text$ = adaptations$.text || new Subject();
+
+    // // set language management for audio and text
+    // this._priv_languageManager =
+    //   new LanguageManager(period.adaptations, {
+    //     audio$,
+    //     text$,
+    //   });
+
+    // // set initial adaptations
+    // for (const bufferType of Object.keys(adaptations$)) {
+    //   const adaptations = period.getAdaptationsForType(
+    //     bufferType as SupportedBufferTypes
+    //   );
+
+    //   // if we have adaptations for the given type, make a choice.
+    //   // if we do not, do not emit anything for it.
+    //   if (adaptations.length) {
+    //     if (bufferType === "audio" && this._priv_languageManager) {
+    //       this._priv_languageManager
+    //         .setInitialAudioTrack(this._priv_initialAudioTrack);
+    //     } else if (bufferType === "text" && this._priv_languageManager) {
+    //       this._priv_languageManager
+    //         .setInitialTextTrack(this._priv_initialTextTrack);
+    //     } else {
+    //       const adaptation$ = adaptations$[bufferType as SupportedBufferTypes];
+    //       (adaptation$ as Subject<Adaptation|null>).next(adaptations[0]);
+    //     }
+    //   }
+    // }
   }
 
   /**
@@ -1675,12 +1683,12 @@ class Player extends EventEmitter {
     this.trigger("periodChange", value.period);
   }
 
-  private _priv_onFinishedPeriod(value : {
-    period : Period;
-  }) : void {
-    // XXX TODO
-    log.warn(value.period, this._priv_languageManager);
-  }
+  // private _priv_onFinishedPeriod(value : {
+  //   period : Period;
+  // }) : void {
+  //   // XXX TODO
+  //   log.warn(value.period, this._priv_languageManager);
+  // }
 
   private _priv_onManifestUpdate(value : { manifest : Manifest }) : void {
     if (__DEV__) {

@@ -35,7 +35,7 @@ import { QueuedSourceBuffer } from "../source_buffers";
 import { SegmentBookkeeper } from "../stream";
 import { SupportedBufferTypes } from "../types";
 import forceGarbageCollection from "./force_garbage_collection";
-import getWantedBufferRange from "./get_wanted_range";
+import getWantedRange from "./get_wanted_range";
 
 // Emitted when a new segment has been added to the SourceBuffer
 export interface IAddedSegmentEvent {
@@ -457,7 +457,7 @@ export default function RepresentationBuffer({
       start: Math.max(period.start, timing.currentTime + timing.timeOffset),
       end: limitEnd,
     };
-    const wantedRange = getWantedBufferRange(
+    const wantedRange = getWantedRange(
       buffered,
       basePosition,
       bufferGoal,

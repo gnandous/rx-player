@@ -45,6 +45,53 @@ import EVENTS, {
 } from "./stream_events";
 
 /**
+ * Maintains a list of Buffers.
+ * Adds methods to push/destroy them and to know whether is given time is before
+ * or after the list of Buffers given.
+ * @class BufferList
+ */
+class BufferList {
+  private _buffers: Array<{
+    period: Period;
+  }>;
+
+  constructor() {
+    this._buffers = [];
+  }
+
+  push(period : Period) {
+    this._buffers.push({ period });
+  }
+
+  remove(period : Period) {
+    for (let i = 0; i < this._buffers.length; i++) {
+      if (period === this._buffers[i].period) {
+        this._buffers.splice(i);
+        return;
+      }
+    }
+  }
+
+  empty() {
+    this._buffers.length = 0;
+  }
+
+  length() {
+    return this._buffers.length;
+  }
+
+  isBefore(time : number) : boolean {
+    const buffer = this._buffers[0];
+    return !buffer || buffer.period.start > time;
+  }
+
+  isAfter(time : number) : boolean {
+    const buffer = this._buffers[this._buffers.length - 1];
+    return !buffer || (buffer.period.end != null && buffer.period.end <= time);
+  }
+}
+
+/**
  * Create and manage the various Buffer Observables needed for the content to
  * stream:
  *
@@ -55,6 +102,84 @@ import EVENTS, {
  *
  *   - Emit events as Period or Adaptations change or as new Period are
  *     prepared.
+ *
+ * Here multiple buffers can be created at the same time to allow smooth
+ * transitions between periods.
+ * To do this, we dynamically create or destroy buffers as they are needed.
+ *
+ * ---- EXAMPLE ----
+ *
+ * Basically let's imagine a regular case, with two periods.
+ *
+ * Let's say that the Buffer for the first period (named B1) is currently
+ * actively downloading segments (the "^" sign is the current position):
+ *    B1
+ * |====  |
+ *    ^
+ *
+ * Once B1 is full (it has no segment left to download):
+ *    B1
+ * |======|
+ *    ^
+ *
+ * We will be able to create a new Buffer for the second period:
+ *    B1     B2
+ * |======|      |
+ *    ^
+ *
+ * Which will then also download segments:
+ *    B1     B2
+ * |======|==    |
+ *    ^
+ *
+ * If B1 needs segments again however (e.g. we change the bitrate, the
+ * language etc.):
+ *    B1     B2
+ * |===   |==    |
+ *    ^
+ *
+ * Then we will destroy B2, to keep it from downloading segments:
+ *    B1
+ * |===   |
+ *    ^
+ * (Here only Buffer observables are destroyed/created. The segments already
+ * pushed do not move).
+ *
+ * ----
+ *
+ * When the current position go ahead of a Buffer (here ahead of B1):
+ *    B1     B2
+ * |======|===   |
+ *         ^
+ *
+ * This Buffer is destroyed to free up ressources:
+ *           B2
+ *        |===   |
+ *         ^
+ *
+ * ----
+ *
+ * When the current position goes behind the first currently defined Buffer:
+ *           B2
+ *        |===   |
+ *     ^
+ *
+ * Then we destroy all previous buffers and [re-]create the one needed:
+ *    B1
+ * |======|
+ *     ^
+ *
+ * In this example, B1 is full so we also can re-create B2, which will also keep
+ * its already-pushed segments:
+ *    B1     B2
+ * |======|===   |
+ *     ^
+ *
+ * ----
+ *
+ * At the end, we should only have Buffer[s] for contiguous Period[s].
+ * The last one should always be the only one downloading content.
+ * The first one should always be the one currently seen by the user.
  *
  * @param {Observable} clock$ - Emit current informations about the content
  * being played. Also regulate the frequencies of the time the Buffer check
@@ -100,19 +225,67 @@ export default function handleBuffers(
     .map((adaptationType) => {
       // :/ TS does not have the intelligence to know that here
       const bufferType = adaptationType as SupportedBufferTypes;
-      return preparePeriod(bufferType, firstPeriod);
+      return manageAllBuffers(bufferType, firstPeriod);
     });
 
   return Observable.merge(...buffersArray);
 
+  function manageAllBuffers(
+    bufferType : SupportedBufferTypes,
+    initialPeriod : Period
+  ) : Observable<IStreamEvent> {
+    const destroy$ = new Subject<void>();
+    const buffers$ = manageContiguousBuffers(bufferType, initialPeriod, destroy$);
+
+    const next$ = clock$
+      .filter(({ currentTime }) =>
+        bufferList.isAfter(currentTime) || bufferList.isBefore(currentTime)
+      )
+      .take(1)
+      .do(() => {
+        destroy$.next();
+      })
+      .mergeMap(({ currentTime }) => {
+        const newInitialPeriod = manifest.getPeriodForTime(currentTime);
+        if (newInitialPeriod == null) {
+          // XXX TODO
+          throw new Error();
+        }
+        return manageAllBuffers(bufferType, newInitialPeriod);
+      });
+
+    // Keep a BufferList for cases such as seeking ahead/before the buffers
+    // already created.
+    // When that happens, interrupt the previous buffers and create one back
+    // from the new initial period.
+    const bufferList = new BufferList();
+    const cur$ = buffers$
+      .do((message) => {
+        if (message.type === "periodReady") {
+          log.error("XXX READY", message.value.period);
+          bufferList.push(message.value.period);
+        } else if (message.type === "finishedPeriod") {
+          log.error("XXX FINISHED", message.value.period);
+          bufferList.remove(message.value.period);
+        }
+      });
+
+    return Observable.merge(cur$, next$);
+  }
+
   /**
-   * Begin Buffer(s) for a bufferType from a particular period.
+   * Create/Remove Buffers for contiguous Periods.
+   * This function is called recursively for each successive Periods as needed.
    * @param {string} bufferType
    * @param {Period} currentPeriod
+   * @param {Observable} destroy$ - Emit when/if all created buffer from this
+   * point should be destroyed.
+   * @returns {Observable}
    */
-  function preparePeriod(
+  function manageContiguousBuffers(
     bufferType : SupportedBufferTypes,
-    currentPeriod : Period
+    currentPeriod : Period,
+    destroy$ : Observable<void>
   ) : Observable<IStreamEvent> {
     /**
      * Emit the chosen adaptation for the current type.
@@ -121,44 +294,49 @@ export default function handleBuffers(
     const adaptation$ = new ReplaySubject<Adaptation|null>(1);
 
     /**
-     * Will emit when the current buffer is not needed anymore and
-     * can be destroyed.
-     * @type {Subject}
+     * The Period coming just after the current one.
+     * @type {Period|undefined}
      */
-    const destroyCurrentBuffer$ = new Subject();
+    const nextPeriod = manifest.getPeriodAfter(currentPeriod);
 
     /**
      * Will emit when the Buffer for the next Period can be created.
      * @type {Subject}
      */
-    const createNextBuffer$ = new Subject();
+    const createNextBuffers$ = new Subject<void>();
 
     /**
-     * Will emit when the Buffer for the next Period should be destroyed if
+     * Will emit when the Buffers for the next Periods should be destroyed, if
      * created.
      * @type {Subject}
      */
-    const destroyNextBuffer$ = new Subject();
+    const destroyNextBuffers$ = new Subject<void>();
 
     /**
-     * Buffer for the next Period.
-     *
-     * Created when the Buffer for the current Buffer is full.
-     * Destroyed when the Buffer for the current Buffer is active.
+     * Prepare Buffer for the next Period.
      * @type {Observable}
      */
-    const nextBuffer$ = createNextBuffer$
+    const nextPeriodBuffer$ = createNextBuffers$
       .exhaustMap(() => {
-        const newPeriod = manifest.getPeriodAfter(currentPeriod);
-        if (!newPeriod || newPeriod === currentPeriod) {
+        if (!nextPeriod || nextPeriod === currentPeriod) {
           // finished
           return Observable.empty();
         }
 
-        log.info("creating new Buffer for", bufferType, newPeriod);
-        return preparePeriod(bufferType, newPeriod)
-          .takeUntil(destroyNextBuffer$);
+        log.info("creating new Buffer for", bufferType, nextPeriod);
+        return manageContiguousBuffers(bufferType, nextPeriod, destroyNextBuffers$);
       });
+
+    /**
+     * Emit when the current position goes over the end of the current buffer.
+     * @type {Subject}
+     */
+    const endOfCurrentBuffer$ = clock$
+      .filter(({ currentTime }) =>
+        !!currentPeriod.end && currentTime > currentPeriod.end
+      );
+
+    const killCurrentBuffer$ = Observable.merge(endOfCurrentBuffer$, destroy$);
 
     /**
      * Buffer for the current Period.
@@ -167,41 +345,30 @@ export default function handleBuffers(
     const periodBuffer$ = createBufferForPeriod(bufferType, currentPeriod, adaptation$)
       .do(({ type }) => {
         if (type === "full") {
-          createNextBuffer$.next();
+          // current buffer is full, create the next one if not
+          createNextBuffers$.next();
         } else if (type === "segments-queued") {
-          destroyNextBuffer$.next();
+          // current buffer is active, destroy next buffer if created
+          destroyNextBuffers$.next();
         }
       })
       .share()
-      .takeUntil(destroyCurrentBuffer$);
+      .takeUntil(killCurrentBuffer$)
+      .startWith(EVENTS.periodReady(bufferType, currentPeriod, adaptation$))
+      .concat(
+        Observable.of(EVENTS.finishedPeriod(bufferType, currentPeriod))
+          .do(() => {
+            log.info("destroying buffer for", bufferType, currentPeriod);
+          })
+      );
 
-    /**
-     * Observable destroying the current buffer when no longer needed.
-     * @type {Observable}
-     */
-    const destroyBuffer$ = clock$
-      .do((tick) => {
-        if (currentPeriod.end && tick.currentTime > currentPeriod.end) {
-          log.info("destroying buffer for", bufferType, currentPeriod);
-          // destroyCurrentBuffer$.next();
-        }
-      })
-      .takeUntil(destroyCurrentBuffer$)
-      .ignoreElements();
-
-    // XXX TODO Ask the API for the wanted adaptation
-    const adaptationsArr = currentPeriod.adaptations[bufferType];
-    adaptation$.next(adaptationsArr ? adaptationsArr[0] : null);
-
-    return Observable.merge(
-      periodBuffer$,
-      nextBuffer$,
-      destroyBuffer$
-    ) as Observable<IStreamEvent>;
+    return Observable.merge(periodBuffer$, nextPeriodBuffer$) as
+      Observable<IStreamEvent>;
   }
 
   /**
    * Create single Buffer Observable for the entire Period.
+   * @param {string} bufferType
    * @param {Period} period - The period concerned
    * @param {Observable} adaptation$ - Emit the chosen adaptation.
    * Emit null to deactivate a type of adaptation

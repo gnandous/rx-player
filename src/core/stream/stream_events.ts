@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { ReplaySubject } from "rxjs/ReplaySubject";
+import { Subject } from "rxjs/Subject";
 import Manifest, {
   Adaptation,
   Period,
@@ -37,9 +37,9 @@ export interface IAdaptationChangeEvent {
 }
 
 // Subjects given to allow a choice between the different adaptations available
-export type IAdaptationsSubject = Partial<
-  Record<SupportedBufferTypes, ReplaySubject<Adaptation|null>>
->;
+// export type IAdaptationsSubject = Partial<
+//   Record<SupportedBufferTypes, ReplaySubject<Adaptation|null>>
+// >;
 
 export interface IStreamStartedEvent {
   type : "started";
@@ -81,14 +81,16 @@ export interface IPeriodChangeEvent {
 export interface IPreparePeriodEvent {
   type : "periodReady";
   value : {
+    type : SupportedBufferTypes;
     period : Period;
-    adaptations$ : IAdaptationsSubject;
+    adaptation$ : Subject<Adaptation|null>;
   };
 }
 
 export interface IFinishedPeriodEvent {
   type : "finishedPeriod";
   value : {
+    type : SupportedBufferTypes;
     period : Period;
   };
 }
@@ -167,22 +169,28 @@ const STREAM_EVENTS = {
   },
 
   periodReady(
+    type : SupportedBufferTypes,
     period : Period,
-    adaptations$ : IAdaptationsSubject
+    adaptation$ : Subject<Adaptation|null>
   ) : IPreparePeriodEvent {
     return {
       type: "periodReady",
       value: {
+        type,
         period,
-        adaptations$,
+        adaptation$,
       },
     };
   },
 
-  finishedPeriod(period : Period) : IFinishedPeriodEvent {
+  finishedPeriod(
+    type : SupportedBufferTypes,
+    period : Period
+  ) : IFinishedPeriodEvent {
     return {
       type: "finishedPeriod",
       value: {
+        type,
         period,
       },
     };
