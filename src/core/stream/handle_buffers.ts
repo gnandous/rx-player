@@ -220,16 +220,21 @@ export default function handleBuffers(
     const destroyCurrentBuffers = new Subject<void>();
 
     const restartBuffers$ = clock$
-      .filter(({ currentTime }) => periodList.isOutOfBounds(currentTime))
+      .filter(({ currentTime, timeOffset }) =>
+        periodList.isOutOfBounds(currentTime + timeOffset)
+      )
       .take(1)
       .do(() => {
         destroyCurrentBuffers.next();
       })
-      .mergeMap(({ currentTime }) => {
-        const newInitialPeriod = manifest.getPeriodForTime(currentTime);
+      .mergeMap(({ currentTime, timeOffset }) => {
+        const newInitialPeriod = manifest.getPeriodForTime(currentTime + timeOffset);
         if (newInitialPeriod == null) {
           throw new MediaError("MEDIA_TIME_NOT_FOUND", null, true);
         }
+
+        // Note: For this to work, manageAllBuffers should always emit the
+        // "periodReady" event for the newInitialPeriod synchronously
         return manageAllBuffers(bufferType, newInitialPeriod);
       });
 
@@ -239,10 +244,8 @@ export default function handleBuffers(
       destroyCurrentBuffers
     ).do((message) => {
       if (message.type === "periodReady") {
-        log.error("XXX READY", message.value.period, bufferType, basePeriod, periodList);
         periodList.add(message.value.period);
       } else if (message.type === "finishedPeriod") {
-        log.error("XXX FINISHED", message.value.period, bufferType, basePeriod, periodList);
         periodList.remove(message.value.period);
       }
     });
@@ -251,21 +254,34 @@ export default function handleBuffers(
   }
 
   /**
-   * Manage creation and removal of Buffers for consecutive Periods only.
+   * Manage creation and removal of Buffers for consecutive Periods.
    *
-   * This function is called recursively for each successive Periods as needed:
-   *   - Buffers for new Periods are created when the previous one is full
-   *   - Buffers for new Periods are destroyed when one of the previous one is
-   *     active again.
+   * This function is called recursively for each successive Periods as needed.
    *
-   * This function does not guarantee creation/destruction of Buffers when the
-   * user seeks or rewind in the content.
+   * This function does not guarantee creation/destruction of the right Buffers
+   * when the user seeks or rewind in the content.
    * It only manages regular playback, another layer should be used to manage
    * those cases.
    *
+   * You can know about buffers creation and destruction respectively through
+   * the "periodReady" and "finishedPeriod" events.
+   *
+   * The "periodReady" related to the given period should be sent synchronously
+   * on subscription.
+   * Further "periodReady" for further Periods should be sent each time the
+   * Buffer for the previous Buffer is full.
+   *
+   * Buffers for each Period are finished ("finishedPeriod" event) either:
+   *   - when it has finished to play (currentTime is after it)
+   *   - when one of the older Buffers becomes active again, in which case the
+   *     Buffers coming after will be finished from the newest to the oldest.
+   *   - when the destroy$ observable emits, in which case every created Buffer
+   *     here will be finished from the newest to the oldest.
+   *
+   * TODO The code here can surely be greatly simplified.
    * @param {string} bufferType - e.g. "audio" or "video"
    * @param {Period} basePeriod - Initial Period downloaded.
-   * @param {Observable} destroy$ - Emit when/if all created buffer from this
+   * @param {Observable} destroy$ - Emit when/if all created Buffer from this
    * point should be destroyed.
    * @returns {Observable}
    */
@@ -274,6 +290,8 @@ export default function handleBuffers(
     basePeriod : Period,
     destroy$ : Observable<void>
   ) : Observable<IStreamEvent> {
+    log.info("creating new Buffer for", bufferType, basePeriod);
+
     /**
      * Emit the chosen adaptation for the current type.
      * @type {ReplaySubject}
@@ -300,21 +318,6 @@ export default function handleBuffers(
     const destroyNextBuffers$ = new Subject<void>();
 
     /**
-     * Prepare Buffer for the next Period.
-     * @type {Observable}
-     */
-    const nextPeriodBuffer$ = createNextBuffers$
-      .exhaustMap(() => {
-        if (!nextPeriod || nextPeriod === basePeriod) {
-          // finished
-          return Observable.empty();
-        }
-
-        log.info("creating new Buffer for", bufferType, nextPeriod);
-        return manageConsecutiveBuffers(bufferType, nextPeriod, destroyNextBuffers$);
-      });
-
-    /**
      * Emit when the current position goes over the end of the current buffer.
      * @type {Subject}
      */
@@ -323,7 +326,41 @@ export default function handleBuffers(
         !!basePeriod.end && currentTime >= basePeriod.end
       );
 
-    const killCurrentBuffer$ = Observable.merge(endOfCurrentBuffer$, destroy$);
+    /**
+     * Prepare Buffer for the next Period.
+     * @type {Observable}
+     */
+    const nextPeriodBuffer$ = createNextBuffers$
+      .exhaustMap(() => {
+        if (!nextPeriod || nextPeriod === basePeriod) {
+          return Observable.empty(); // finished
+        }
+        return manageConsecutiveBuffers(bufferType, nextPeriod, destroyNextBuffers$);
+      });
+
+    /**
+     * Allows to destroy each created Buffer, from the newest to the oldest,
+     * once destroy$ emits.
+     * @type {Observable}
+     */
+    const destroyAll$ = destroy$
+      .take(1)
+      .do(() => {
+        // first complete createNextBuffer$ to allow completion of the
+        // nextPeriodBuffer$ observable once every further Buffers have been
+        // finished.
+        createNextBuffers$.complete();
+
+        // emit destruction signal to the next Buffer first
+        destroyNextBuffers$.next();
+        destroyNextBuffers$.complete(); // we do not need it anymore
+      }).share();
+
+    /**
+     * Will emit when the current buffer should be destroyed.
+     * @type {Observable}
+     */
+    const killCurrentBuffer$ = Observable.merge(endOfCurrentBuffer$, destroyAll$);
 
     /**
      * Buffer for the current Period.

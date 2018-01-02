@@ -236,10 +236,7 @@ export default function RepresentationBuffer({
    * @returns {Array.<Segment>}
    */
   function getSegmentsListToInject(
-    range : {
-      start : number;
-      end : number;
-    },
+    range : { start : number; end : number },
     timing : IBufferClockTick,
     needsInitSegment : boolean
   ) : Segment[] {
@@ -260,11 +257,6 @@ export default function RepresentationBuffer({
     // XXX TODO
     // get every segments currently downloaded and loaded
     const segments = segmentBookkeeper.inventory
-      .filter((bufferedSegment) =>
-        bufferedSegment.infos.period.id === period.id &&
-        bufferedSegment.infos.adaptation.id === adaptation.id &&
-        bufferedSegment.infos.representation.id === representation.id
-      )
       .map(s => s.infos.segment);
 
     const shouldRefresh = representation.index.shouldRefresh(segments, start, end);
@@ -297,10 +289,7 @@ export default function RepresentationBuffer({
    */
   function segmentFilter(
     segment : Segment,
-    wantedRange : {
-      start : number;
-      end : number;
-    }
+    wantedRange : { start : number; end : number }
   ) : boolean {
     // if this segment is already in the pipeline
     const isInQueue = queuedSegments.test(segment.id);
@@ -322,12 +311,21 @@ export default function RepresentationBuffer({
     const currentSegment =
       segmentBookkeeper.hasPlayableSegment(wantedRange, { time, duration, timescale });
 
+    if (!currentSegment) {
+      return true;
+    }
+
+    if (
+      currentSegment.infos.period.id !== period.id ||
+      currentSegment.infos.adaptation.id !== adaptation.id
+    ) {
+      return true;
+    }
+
     // only re-load comparatively-poor bitrates for the same adaptation.
-    return !currentSegment ||
-      (currentSegment.infos.period.id !== period.id) ||
-      (currentSegment.infos.adaptation.id !== adaptation.id) ||
-      (currentSegment.infos.representation.bitrate * BITRATE_REBUFFERING_RATIO) <
-      representation.bitrate;
+    const bitrateCeil = currentSegment.infos.representation.bitrate *
+      BITRATE_REBUFFERING_RATIO;
+    return representation.bitrate > bitrateCeil;
   }
 
   /**
