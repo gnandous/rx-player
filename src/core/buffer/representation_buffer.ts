@@ -478,7 +478,7 @@ export default function RepresentationBuffer({
         },
       };
     } else if (queuedSegments.isEmpty()) {
-      if (limits.end != null && wantedRange.end >= limits.end) {
+      if (period.end != null && wantedRange.end >= period.end) {
         return {
           type: "full",
           value: {
