@@ -90,6 +90,10 @@ class RepresentationIndex {
     return this._indexHelpers.getLastPosition(this._index);
   }
 
+  getTokenOffset() : number {
+    return this._index.tokenOffset;
+  }
+
   checkDiscontinuity(time : number) : number {
     return this._indexHelpers.checkDiscontinuity(this._index, time);
   }

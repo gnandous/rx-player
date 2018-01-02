@@ -51,7 +51,7 @@ import {
   SegmentParserObservable,
 } from "../types";
 
-interface IDASHOptions {
+export interface IDASHOptions {
   segmentLoader? : CustomSegmentLoader;
   contentProtectionParser? : IContentProtectionParser;
 }

@@ -15,18 +15,24 @@
  */
 
 import {
-    be2toi,
     be4toi,
     be8toi,
-    bytesToHex,
     bytesToStr,
     concat,
-    hexToBytes,
-    itobe2,
     itobe4,
     itobe8,
     strToBytes,
   } from "../../utils/bytes";
+
+/**
+ * Create a new _Atom_ (isobmff box).
+ * @param {string} name - The box name (e.g. sidx, moov, pssh etc.)
+ * @param {Uint8Array} buff - The box's content
+ */
+function Atom(name : string, buff : Uint8Array) : Uint8Array {
+  const len = buff.length + 8;
+  return concat(itobe4(len), strToBytes(name), buff);
+}
 
 function ord(string: string) {
   const str = string + "";
@@ -58,46 +64,118 @@ function chr(codePt: any): string {
 
 export default class BoxPatchers {
     private offset: number;
-    private seg_duration: number;
-    private lmsg;
-    private scte35_per_minute = 0;
+    private lmsg: boolean;
     private is_ttml = false;
-    private seg_nr;
-    private track_timescale;
-    private rel_path;
-    private top_level_boxes_to_parse = [];
-    private composite_boxes_to_parse = [];
+    private seg_nr: number|undefined;
+    private top_level_boxes_to_parse: string[] = [];
+    private composite_boxes_to_parse: string[] = [];
     private size_change = 0;
     private tfdt_value: number;
     private duration: number;
-    private ttml_size;
+    private ttml_size: number;
     private data: Uint8Array;
 
     constructor(
-        file_name: string,
-        seg_duration?,
+        data: Uint8Array,
+        lmsg: boolean,
+        is_ttml: boolean,
         offset?: number,
-        lmsg?,
-        scte35_per_minute?,
-        is_ttml?,
-        seg_nr?: number,
-        track_timescale?: number,
-        rel_path?: string
+        seg_nr?: number
     ){
+        this.data = data;
         this.top_level_boxes_to_parse = ["styp", "sidx", "moof", "mdat"];
         this.composite_boxes_to_parse = ["moof", "traf"];
         this.seg_nr = seg_nr;
-        this.seg_duration = seg_duration || 1;
         this.offset = offset || 0;
-        this.track_timescale = track_timescale;
-        this.rel_path = rel_path;
         this.lmsg = lmsg || false;
-        this.scte35_per_minute = scte35_per_minute || 0;
         this.is_ttml = is_ttml || false;
         if(this.is_ttml){
             this.data = this.find_and_process_mdat(this.data);
         }
     }
+
+      check_box(data: Uint8Array){
+        const size = be4toi(data, 0);
+        const boxtype = bytesToStr(data.subarray(4,8));
+        return {
+            size,
+            boxtype,
+        };
+      }
+
+      filter(){
+        let output = new Uint8Array(0);
+        let pos = 0;
+        while(pos < this.data.length){
+          const { size, boxtype } = this.check_box(this.data.subarray(pos, pos+8));
+          const boxdata = this.data.subarray(pos, pos+size);
+          const concatData = (this.top_level_boxes_to_parse
+            .filter((name) => name === boxtype).length !== 0) ?
+              this.filter_box(boxtype, boxdata, output.length) :
+              boxdata;
+          output = concat(output, concatData);
+          pos += size;
+        }
+        return output;
+      }
+
+      filter_box(
+        boxtype: string,
+        data: Uint8Array,
+        file_pos: number,
+        _path?: string
+      ): Uint8Array{
+        let output = new Uint8Array(0);
+        const path = _path ? (_path + "." +boxtype) : boxtype;
+
+        if (this.composite_boxes_to_parse.filter((box) => box === boxtype).length !== 0){
+          output = data.subarray(0,8);
+          let pos = 8;
+          while(pos < data.length){
+            const {
+              size: child_size,
+              boxtype: child_box_type,
+            } = this.check_box(data.subarray(pos, pos+8));
+            const output_child_box =
+              this.filter_box(
+                child_box_type,
+                data.subarray(pos, pos+child_size),
+                file_pos+pos,
+                path
+              );
+            output = concat(output, output_child_box);
+            pos += child_size;
+          }
+          if(output.length !== data.length){
+            output = concat(itobe4(output.length), output.subarray(0,4));
+          }
+        } else {
+          switch(boxtype){
+            case "styp":
+              output = this.styp(data);
+              break;
+            case "tfhd":
+              output = this.tfhd(data);
+              break;
+            case "mfhd":
+              output = this.mfhd(data);
+              break;
+            case "trun":
+              output = this.trun(data);
+              break;
+            case "sidx":
+              output = this.sidx(data, true);
+              break;
+            case "tfdt":
+              output = this.tfdt(data);
+              break;
+            case "mdat":
+              output = data;
+              break;
+          }
+        }
+        return output;
+      }
 
       /**
        * Process styp and make sure lmsg presence follows the lmsg flag parameter.
@@ -126,8 +204,7 @@ export default class BoxPatchers {
         for (let i = 0; i < brands.length; i++){
           data.set(brands[i], i*4);
         }
-        const scte35box = this.create_scte35box();
-        return Atom("styp", concat(data, scte35box));
+        return Atom("styp", data);
       }
 
       /**
@@ -147,7 +224,7 @@ export default class BoxPatchers {
           pos += 4;
         }
         if((tf_flags & 0x08) === 0) {
-          throw new Error("Cannot handle ttml segments with default_sample_duration absent");
+          throw new Error("Cannot handle ttml segments with no default_sample_duration");
         } else {
           pos += 4;
         }
@@ -275,7 +352,7 @@ export default class BoxPatchers {
        */
       tfdt(input: Uint8Array): Uint8Array{
         const version = ord(input[8].toString());
-        const tfdt_offset = this.offset*this.track_timescale;
+        const tfdt_offset = this.offset;
         let output = new Uint8Array(0);
         let new_base_media_decode_time;
         // 32-bit baseMediaDecodeTime
@@ -315,7 +392,7 @@ export default class BoxPatchers {
         _output: Uint8Array
       ){
         const version = ord(input[8].toString());
-        const tfdt_offset = this.offset*this.track_timescale;
+        const tfdt_offset = this.offset;
         let output = _output;
         let base_media_decode_time;
         // 32-bit baseMediaDecodeTime
@@ -341,34 +418,39 @@ export default class BoxPatchers {
       /**
        * Update the ttml payload of mdat and its size.
        */
-      update_ttml_mdat(data: Uint8Array){
-        const ttml_xml = data.subarray(8, data.length);
-        const ttml_out = adjust_ttml_content(ttml_xml, this.offset, this.seg_nr);
-        this.ttml_size = ttml_out.length;
-        const out_size = this.ttml_size + 8;
-        return concat(itobe4(out_size), strToBytes("mdat"), strToBytes(ttml_out));
-      }
+      // update_ttml_mdat(data: Uint8Array){
+      //   const ttml_xml = data.subarray(8, data.length);
+      //   const ttml_out = adjust_ttml_content(ttml_xml, this.offset, this.seg_nr);
+      //   this.ttml_size = ttml_out.length;
+      //   const out_size = this.ttml_size + 8;
+      //   return concat(itobe4(out_size), strToBytes("mdat"), strToBytes(ttml_out));
+      // }
 
       /**
        * Change the ttml part of mdat and update mdat size. Return full new data.
        */
-      find_and_process_mdat(
-        data: Uint8Array,
-        offset: number,
-        seg_nr: number
-      ){
-        let pos = 0;
-        let output = new Uint8Array(0);
-        while (pos < data.length){
-            const size = be4toi(data, pos);
-            const boxtype = bytesToStr(data.subarray(pos+4,pos+8));
-            const input_for_update =
-              boxtype !== "mdat" ?
-                data.subarray(pos, pos+size) :
-                this.update_ttml_mdat(data.subarray(pos, pos+size));
-            output = concat(output, input_for_update);
-            pos += size;
-        }
-        return output;
+      find_and_process_mdat(data: Uint8Array){
+        // let pos = 0;
+        // let output = new Uint8Array(0);
+        // while (pos < data.length){
+        //     const size = be4toi(data, pos);
+        //     const boxtype = bytesToStr(data.subarray(pos+4,pos+8));
+        //     const input_for_update =
+        //       boxtype !== "mdat" ?
+        //         data.subarray(pos, pos+size) :
+        //         this.update_ttml_mdat(data.subarray(pos, pos+size));
+        //     output = concat(output, input_for_update);
+        //     pos += size;
+        // }
+        // return output;
+        return data;
+      }
+
+      getTfdt(){
+        return this.tfdt_value;
+      }
+
+      getDuration(){
+        return this.duration;
       }
     }

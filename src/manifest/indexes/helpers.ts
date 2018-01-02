@@ -39,6 +39,7 @@ interface ITemplateIndex {
   duration: number;
   startNumber: number;
   timeline: IIndexSegment[];
+  tokenOffset?: number;
 }
 
 interface IListIndex {

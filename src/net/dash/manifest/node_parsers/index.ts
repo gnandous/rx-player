@@ -62,6 +62,7 @@ export interface IPeriod {
   id : string;
   adaptations : IParsedAdaptationSet[];
   start : number;
+  end? : number;
 
   // optional
   duration? : number; // should only be for the last period
@@ -278,6 +279,10 @@ export default function parseMPD(
     const nextPeriod = parsedPeriods[i + 1];
     if (period.duration == null && nextPeriod && nextPeriod.start != null) {
       period.duration = nextPeriod.start - period.start;
+    } else if(period.duration == null && parsedPeriods.length === 1) {
+      // We reach this point when manifest contains one period with
+      // no duration.
+      period.duration = duration;
     }
 
     periods.push(period);

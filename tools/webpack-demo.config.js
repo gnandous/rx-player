@@ -42,6 +42,7 @@ const config = {
   plugins: [
     new webpack.DefinePlugin({
       "__FEATURES__": {
+        METADASH: true,
         SMOOTH: true,
         DASH: true,
         DIRECTFILE: true,

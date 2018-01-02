@@ -90,6 +90,7 @@ function replaceTokens(
   segment : Segment,
   representation : Representation
 ) : string {
+  const timeOffset = segment.timescale * (representation.index.getTokenOffset() || 0);
   if (path.indexOf("$") === -1) {
     return path;
   } else {
@@ -103,13 +104,15 @@ function replaceTokens(
         if (segment.number == null) {
           throw new Error("Segment number not defined in a $Number$ scheme");
         }
-        return processFormatedToken(segment.number)(_x, _y, widthStr);
+        const numberOffset =
+          Math.floor(segment.duration ? (timeOffset / segment.duration) : 0);
+        return processFormatedToken(segment.number - numberOffset)(_x, _y, widthStr);
       })
       .replace(/\$Time(|\%0(\d+)d)\$/g, (_x, _y, widthStr) => {
         if (segment.time == null) {
           throw new Error("Segment time not defined in a $Time$ scheme");
         }
-        return processFormatedToken(segment.time)(_x, _y, widthStr);
+        return processFormatedToken(segment.time - timeOffset)(_x, _y, widthStr);
       });
   }
 }

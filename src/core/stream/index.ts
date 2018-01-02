@@ -292,7 +292,7 @@ export default function Stream({
     log.debug("calculating initial time");
     const initialTime = getInitialTime(manifest, startAt);
     log.debug("initial time calculated:", initialTime);
-
+debugger;
     const firstPeriodToPlay = manifest.getPeriodForTime(initialTime);
     if (firstPeriodToPlay == null) {
       throw new MediaError("MEDIA_STARTING_TIME_NOT_FOUND", null, true);
