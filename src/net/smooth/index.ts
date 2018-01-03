@@ -15,7 +15,7 @@
  */
 
 import { Observable } from "rxjs/Observable";
-import Adaptation from "../../manifest/adaptation";
+import { Adaptation } from "../../manifest";
 import parseBif from "../../parsers/images/bif";
 import assert from "../../utils/assert";
 import request from "../../utils/request";

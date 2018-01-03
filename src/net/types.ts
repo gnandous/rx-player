@@ -16,13 +16,12 @@
 
 import { Observable } from "rxjs/Observable";
 import { Observer } from "rxjs/Observer";
-
-import Adaptation from "../manifest/adaptation";
-import Manifest from "../manifest/index";
-import Period from "../manifest/period";
-import Representation from "../manifest/representation";
-import Segment from "../manifest/segment";
-
+import Manifest, {
+  Adaptation,
+  Period,
+  Representation,
+  Segment,
+} from "../manifest";
 import { IBifThumbnail } from "../parsers/images/bif";
 
 // TODO Refacto to unify those
