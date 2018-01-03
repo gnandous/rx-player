@@ -244,46 +244,44 @@ class Player extends EventEmitter {
   };
 
   /**
-   * Store every active Periods.
+   * Store every active Periods and their linked buffer types, in chronological
+   * order.
    *
-   * The rules are the same than in lower layers:
-   *   - The first active Period is the currently played one
-   *   - Any subsequent one are pre-loaded period, consecutive in chronological
-   *     order.
+   * Periods in this list always respect the following rules:
+   *   - The first Period in the list is the currently played one.
+   *   - Any subsequent one are pre-loaded periods, consecutive to the one
+   *     before in chronological order.
    *
    * null if no period is active
    * @private
    * @type {SortedList}
    */
-  private _priv_activePeriods : SortedList<Period> | null;
+  private _priv_activePeriods : SortedList<{
+    period: Period;
+    buffers: Set<SupportedBufferTypes>;
+  }> | null;
 
   /**
-   * Store current adaptations for the loaded content.
+   * Store currently considered adaptations, per active period.
    *
    * null if no adaptation is active
    * @private
    * @type {Map}
    */
-  private _priv_activeAdaptations : Map<Period, {
-    audio? : Adaptation|null;
-    video? : Adaptation|null;
-    text? : Adaptation|null;
-    image? : Adaptation|null;
-  }> | null;
+  private _priv_activeAdaptations : Map<Period, Partial<
+    Record<SupportedBufferTypes, Adaptation|null>
+    >> | null;
 
   /**
-   * Store currently downloaded representations per active period.
+   * Store currently considered representations, per active period.
    *
    * null if no representation is active
    * @private
    * @type {Map}
    */
-  private _priv_activeRepresentations : Map<Period, {
-    audio? : Representation|null;
-    video? : Representation|null;
-    text? : Representation|null;
-    image? : Representation|null;
-  }> | null;
+  private _priv_activeRepresentations : Map<Period, Partial<
+    Record<SupportedBufferTypes, Representation|null>
+    >> | null;
 
   /**
    * Store wanted configuration for the limitVideoWidth option.
@@ -356,7 +354,8 @@ class Player extends EventEmitter {
 
   /**
    * Current fatal error which STOPPED the player.
-   * Null when the player is not STOPPED anymore or if STOPPED but not due to
+   *
+   * null when the player is not STOPPED anymore or if STOPPED but not due to
    * an error.
    * @private
    * @type {Error|null}
@@ -365,8 +364,11 @@ class Player extends EventEmitter {
 
   /**
    * Current Image Track Data associated to the content.
-   * Null if no content has been loaded or if the current content has no
+   *
+   * null if no content has been loaded or if the current content has no
    * image playlist linked to it.
+   *
+   * TODO Need complete refactoring for live or multi-periods contents
    * @private
    * @type {Object|null}
    */
@@ -793,21 +795,38 @@ class Player extends EventEmitter {
     return this._priv_currentManifest || null;
   }
 
-  // XXX TODO Private for debugging
-  // getActivePeriods() : Period[] {
-  //   if (!this._priv_activePeriods) {
-  //     return [];
-  //   }
-  //   return this._priv_activePeriods.unwrap();
-  // }
+  /**
+   * Get all currently active Periods.
+   * ATM only used for debugging, not part of the API.
+   * @returns {Array.<Period>}
+   */
+  _priv_getActivePeriods() : Period[] {
+    if (!this._priv_activePeriods) {
+      return [];
+    }
+    return this._priv_activePeriods.unwrap()
+      .map(activePeriodItem => activePeriodItem.period);
+  }
 
-  // getActiveAdaptations() {
-  //   return this._priv_activeAdaptations;
-  // }
+  /**
+   * Get all currently active Adaptations, per Period.
+   * ATM only used for debugging, not part of the API.
+   * @returns {Map|null}
+   */
+  _priv_getActiveAdaptations(
+  ) : Map<Period, Partial<Record<SupportedBufferTypes, Adaptation|null>>> | null {
+    return this._priv_activeAdaptations;
+  }
 
-  // getActiveRepresentations() {
-  //   return this._priv_activeRepresentations;
-  // }
+  /**
+   * Get all currently active Representations, per Period.
+   * ATM only used for debugging, not part of the API.
+   * @returns {Map|null}
+   */
+  _priv_getActiveRepresentations(
+  ) : Map<Period, Partial<Record<SupportedBufferTypes, Representation|null>>> | null {
+    return this._priv_activeRepresentations;
+  }
 
   /**
    * Returns the current Period.
@@ -817,7 +836,8 @@ class Player extends EventEmitter {
     if (!this._priv_activePeriods) {
       return null;
     }
-    return this._priv_activePeriods.head() || null;
+    const periodItem = this._priv_activePeriods.head() || null;
+    return periodItem && periodItem.period;
   }
 
   /**
@@ -825,7 +845,8 @@ class Player extends EventEmitter {
    * (audio/video/text...).
    * @returns {Object|null}
    */
-  getCurrentAdaptations() {
+  getCurrentAdaptations(
+  ) : Partial<Record<SupportedBufferTypes, Adaptation|null>> | null {
     const currentPeriod = this.getCurrentPeriod();
     if (!currentPeriod || !this._priv_activeAdaptations){
       return null;
@@ -838,7 +859,8 @@ class Player extends EventEmitter {
    * (audio/video/text...).
    * @returns {Object|null}
    */
-  getCurrentRepresentations() {
+  getCurrentRepresentations(
+  ) : Partial<Record<SupportedBufferTypes, Representation|null>> | null {
     const currentPeriod = this.getCurrentPeriod();
     if (!currentPeriod || !this._priv_activeRepresentations){
       return null;
@@ -1085,7 +1107,11 @@ class Player extends EventEmitter {
    * @returns {Number|undefined}
    */
   getVideoBitrate() : number|undefined {
-    return this._priv_recordedEvents.videoBitrate;
+    const representations = this.getCurrentRepresentations();
+    if (!representations || !representations.video) {
+      return;
+    }
+    return representations.video.bitrate;
   }
 
   /**
@@ -1093,7 +1119,11 @@ class Player extends EventEmitter {
    * @returns {Number|undefined}
    */
   getAudioBitrate() : number|undefined {
-    return this._priv_recordedEvents.audioBitrate;
+    const representations = this.getCurrentRepresentations();
+    if (!representations || !representations.audio) {
+      return;
+    }
+    return representations.audio.bitrate;
   }
 
   /**
@@ -1462,9 +1492,6 @@ class Player extends EventEmitter {
    * @returns {Array.<Object>|null}
    */
   getImageTrackData() : IBifThumbnail[] | null {
-    if (!this._priv_currentManifest) {
-      return null;
-    }
     return this._priv_currentImagePlaylist;
   }
 
@@ -1548,6 +1575,8 @@ class Player extends EventEmitter {
 
   /**
    * Called each time the Stream Observable emits.
+   *
+   * React to various events.
    * @param {Object} streamInfos - payload emitted
    */
   private _priv_onStreamNext(streamInfos : IStreamEvent) : void {
@@ -1653,8 +1682,9 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Triggered each times the stream "prepares" a new Period, and
+   * Triggered each times the Stream "prepares" a new Period, and
    * needs the API to sent it its chosen adaptation.
+   *
    * @param {Object} value
    * @param {Object} value.period
    * @param {Object} value.adaptations
@@ -1667,10 +1697,28 @@ class Player extends EventEmitter {
   }) : void {
     const { type, period, adaptation$ } = value;
 
+    const previousCurrentPeriod = this.getCurrentPeriod();
     if (!this._priv_activePeriods) {
-      this._priv_activePeriods = new SortedList<Period>((a, b) => a.start - b.start);
+      this._priv_activePeriods = new SortedList((a, b) =>
+        a.period.start - b.period.start);
     }
-    this._priv_activePeriods.add(period);
+
+    const periodItem = this._priv_activePeriods.find(p => p.period === period);
+    if (!periodItem) {
+      const newPeriodItem = {
+        period,
+        buffers: new Set<SupportedBufferTypes>(),
+      };
+      newPeriodItem.buffers.add(type);
+      this._priv_activePeriods.add(newPeriodItem);
+    } else {
+      periodItem.buffers.add(type);
+    }
+
+    const currentPeriod = this.getCurrentPeriod();
+    if (currentPeriod !== previousCurrentPeriod) {
+      this._priv_recordState("period", currentPeriod);
+    }
 
     if ((type === "audio" || type === "text")) {
       if (!this._priv_languageManager) {
@@ -1689,16 +1737,34 @@ class Player extends EventEmitter {
     }
   }
 
+  /**
+   * Triggered each times the Stream "removes" a Period.
+   */
   private _priv_onFinishedPeriod(value : {
     type : SupportedBufferTypes;
     period : Period;
   }) : void {
     const { type, period } = value;
 
-    if (!this._priv_activePeriods) {
-      log.error("API: No active period yet finishedPeriod event received.");
+    const previousCurrentPeriod = this.getCurrentPeriod();
+
+    if (!this._priv_activePeriods || this._priv_activePeriods.length() === 0) {
+      log.error("API: finishedPeriod event received while no period is active.");
     } else {
-      this._priv_activePeriods.removeFirst(period);
+      const periodItem = this._priv_activePeriods.find(p => p.period === period);
+      if (!periodItem) {
+        log.error("API: finishedPeriod event received for an unknown period.");
+      } else {
+        periodItem.buffers.delete(type);
+        if (!periodItem.buffers.size) {
+          this._priv_activePeriods.removeFirst(periodItem);
+        }
+      }
+    }
+
+    const currentPeriod = this.getCurrentPeriod();
+    if (currentPeriod !== previousCurrentPeriod) {
+      this._priv_recordState("period", currentPeriod);
     }
 
     if (type === "audio" || type === "text") {
@@ -1737,6 +1803,7 @@ class Player extends EventEmitter {
     adaptation : Adaptation|null;
     period : Period;
   }) : void {
+    // lazily create this._priv_activeAdaptations
     if (!this._priv_activeAdaptations) {
       this._priv_activeAdaptations = new Map();
     }
@@ -1777,6 +1844,7 @@ class Player extends EventEmitter {
     period : Period;
     representation : Representation|null;
   }) : void {
+    // lazily create this._priv_activeRepresentations
     if (!this._priv_activeRepresentations) {
       this._priv_activeRepresentations = new Map();
     }

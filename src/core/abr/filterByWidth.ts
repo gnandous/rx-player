@@ -31,7 +31,8 @@ export default function filterByWidth(
 ) : Representation[] {
   const sortedRepsByWidth = representations.sort(
     (a, b) => (a.width || 0) - (b.width || 0));
-  const repWithMaxWidth : Representation =
+
+  const repWithMaxWidth =
     arrayFind(sortedRepsByWidth, (r) => (r.width || 0) >= width);
 
   if (repWithMaxWidth) {
