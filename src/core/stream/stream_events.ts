@@ -32,6 +32,7 @@ export interface IAdaptationChangeEvent {
   type : "adaptationChange";
   value : {
     type : SupportedBufferTypes;
+    period : Period;
     adaptation : Adaptation|null;
   };
 }
@@ -98,13 +99,15 @@ export interface IFinishedPeriodEvent {
 const STREAM_EVENTS = {
   adaptationChange(
     bufferType : SupportedBufferTypes,
-    adaptation : Adaptation|null
+    adaptation : Adaptation|null,
+    period : Period
   ) : IAdaptationChangeEvent {
     return {
       type: "adaptationChange",
       value : {
         type: bufferType,
         adaptation,
+        period,
       },
     };
   },
@@ -158,12 +161,16 @@ const STREAM_EVENTS = {
     };
   },
 
-  nullRepresentation(type : SupportedBufferTypes) : IRepresentationChangeEvent {
+  nullRepresentation(
+    type : SupportedBufferTypes,
+    period : Period
+  ) : IRepresentationChangeEvent {
     return {
       type: "representationChange",
       value: {
         type,
         representation: null,
+        period,
       },
     };
   },

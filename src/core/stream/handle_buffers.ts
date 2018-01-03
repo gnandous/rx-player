@@ -42,7 +42,7 @@ import SourceBufferManager, {
   SourceBufferOptions,
 } from "../source_buffers";
 import { SupportedBufferTypes } from "../types";
-import ConsecutivePeriodsList from "./consecutive_periods_list";
+import PeriodList from "./periods_list";
 import SegmentBookkeeper from "./segment_bookkeeper";
 import EVENTS, {
   IStreamEvent,
@@ -202,13 +202,13 @@ export default function handleBuffers(
     basePeriod : Period
   ) : Observable<IStreamEvent> {
     /**
-     * Keep a ConsecutivePeriodsList for cases such as seeking ahead/before the
+     * Keep a PeriodList for cases such as seeking ahead/before the
      * buffers already created.
      * When that happens, interrupt the previous buffers and create one back
      * from the new initial period.
      * @type {ConsecutivePeriodList}
      */
-    const periodList = new ConsecutivePeriodsList();
+    const periodList = new PeriodList();
 
     /**
      * Destroy the current set of consecutive buffers.
@@ -224,7 +224,9 @@ export default function handleBuffers(
         periodList.isOutOfBounds(currentTime + timeOffset)
       )
       .take(1)
-      .do(() => {
+      .do(({ currentTime, timeOffset }) => {
+        log.info("Current position out of the bounds of the active periods," +
+          "re-creating buffers.", bufferType, currentTime + timeOffset);
         destroyCurrentBuffers.next();
       })
       .mergeMap(({ currentTime, timeOffset }) => {
@@ -244,8 +246,10 @@ export default function handleBuffers(
       destroyCurrentBuffers
     ).do((message) => {
       if (message.type === "periodReady") {
+        log.error("XXX READY", bufferType, message.value.period);
         periodList.add(message.value.period);
       } else if (message.type === "finishedPeriod") {
+        log.error("XXX FINISHED", bufferType, message.value.period);
         periodList.remove(message.value.period);
       }
     });
@@ -322,8 +326,8 @@ export default function handleBuffers(
      * @type {Subject}
      */
     const endOfCurrentBuffer$ = clock$
-      .filter(({ currentTime }) =>
-        !!basePeriod.end && currentTime >= basePeriod.end
+      .filter(({ currentTime, timeOffset }) =>
+        !!basePeriod.end && (currentTime + timeOffset) >= basePeriod.end
       );
 
     /**
@@ -386,7 +390,11 @@ export default function handleBuffers(
           })
       );
 
-    return Observable.merge(periodBuffer$, nextPeriodBuffer$) as
+    return Observable.merge(
+      periodBuffer$,
+      nextPeriodBuffer$,
+      destroyAll$.ignoreElements()
+    ) as
       Observable<IStreamEvent>;
   }
 
@@ -406,7 +414,7 @@ export default function handleBuffers(
     return adaptation$.switchMap((adaptation) => {
 
       if (adaptation == null) {
-        return disposeSourceBuffer(bufferType, sourceBufferManager);
+        return disposeSourceBuffer(bufferType, sourceBufferManager, period);
       }
 
       log.info(`updating ${bufferType} adaptation`, adaptation);
@@ -452,7 +460,7 @@ export default function handleBuffers(
 
       // 5 - Return the buffer and send right events
       return Observable
-        .of(EVENTS.adaptationChange(bufferType, adaptation))
+        .of(EVENTS.adaptationChange(bufferType, adaptation, period))
         .concat(Observable.merge(adaptationBuffer$, bufferGarbageCollector$));
     });
   }
@@ -516,12 +524,13 @@ function createNativeSourceBuffersForPeriod(
  */
 function disposeSourceBuffer(
   bufferType : SupportedBufferTypes,
-  sourceBufferManager : SourceBufferManager
+  sourceBufferManager : SourceBufferManager,
+  period : Period
 ) {
   log.info(`disposing ${bufferType} adaptation`);
   sourceBufferManager.dispose(bufferType);
 
   return Observable
-    .of(EVENTS.adaptationChange(bufferType, null))
-    .concat(Observable.of(EVENTS.nullRepresentation(bufferType)));
+    .of(EVENTS.adaptationChange(bufferType, null, period))
+    .concat(Observable.of(EVENTS.nullRepresentation(bufferType, period)));
 }

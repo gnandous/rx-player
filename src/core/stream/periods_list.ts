@@ -15,7 +15,7 @@
  */
 
 import { Period } from "../../manifest";
-import log from "../../utils/log";
+import SortedList from "../../utils/sorted_list";
 
 /**
  * Maintains a list of consecutive Periods.
@@ -25,13 +25,11 @@ import log from "../../utils/log";
  * Can be used to maintain a list of currently active buffers, by keeping track
  * of which Period each one of them are linked to.
  *
- * /!\ This class can only contain a _consecutive_ list of Periods.
  * @example
  *
  * TODO Globalize to a "Range" thingy?
- * TODO This is too specific and smart, should be removed/simplified.
  * ```js
- * const list = new ConsecutivePeriodsList();
+ * const list = new PeriodsList();
  *
  * list.add(period1);
  * list.add(period2);
@@ -57,69 +55,22 @@ import log from "../../utils/log";
  * console.log(list.isOutOfBounds(timeInPeriod1)); // => true
  * console.log(list.isOutOfBounds(timeInPeriod2)); // => true
  * console.log(list.isOutOfBounds(timeInPeriod3)); // => true
- *
- * // Note 1: it's impossible to remove a period which is between
- * // other periods:
- * const list2 = new ConsecutivePeriodsList();
- * list2.add(period1);
- * list2.add(period2);
- * list2.add(period3);
- *
- * // This will throw
- * list2.remove(period2);
- *
- * // Note 2: it's impossible to add a period which is between
- * // other periods:
- * const list3 = new ConsecutivePeriodsList();
- * list3.add(period1);
- *
- * // this will work
- * list3.add(period3);
- *
- * // but this will throw
- * list3.add(period2);
- *
  * ```
- * @class ConsecutivePeriodsList
+ * @class PeriodsList
  */
-export default class ConsecutivePeriodsList {
-  private _periods: Period[];
+export default class PeriodsList {
+  private _periods : SortedList<Period>;
 
   constructor() {
-    this._periods = [];
+    this._periods = new SortedList<Period>((a, b) => a.start - b.start);
   }
 
   /**
    * Add a period to the list.
-   * The period should either come before the list of Periods already there
-   * or after.
-   * The period won't be added if it's already in the list.
    * @param {Period} period
    */
   add(period : Period) {
-    if (!this._periods.length) {
-      this._periods.push(period);
-      return;
-    }
-
-    const firstPeriod = this._periods[0];
-    if (period.start < firstPeriod.start) {
-      this._periods.unshift(period);
-      return;
-    } else if (period.start > firstPeriod.start) {
-      if (this._periods.length === 1) {
-        this._periods.push(period);
-        return;
-      }
-      const lastPeriod = this._periods[this._periods.length - 1];
-      if (lastPeriod.start < period.start) {
-        this._periods.push(period);
-      } else {
-        throw new Error("ConsecutivePeriodsList: the given Period is not at the edge");
-      }
-    } else {
-      log.warn("ConsecutivePeriodsList: Cannot push two Periods with the same start.");
-    }
+    this._periods.add(period);
   }
 
   /**
@@ -127,17 +78,7 @@ export default class ConsecutivePeriodsList {
    * @param {Period} period
    */
   remove(period : Period) {
-    if (period === this._periods[0]) {
-      this._periods.shift();
-    } else if (period === this._periods[this._periods.length-1]) {
-      this._periods.pop();
-    } else {
-      if (this._periods.indexOf(period) === -1) {
-        log.warn("ConsecutivePeriodsList: Cannot remove Period: not found.");
-      } else {
-        throw new Error("ConsecutivePeriodsList: Cannot remove Period: not at the edge");
-      }
-    }
+    this._periods.removeFirst(period);
   }
 
   /**
@@ -153,7 +94,7 @@ export default class ConsecutivePeriodsList {
    * @returns {boolean}
    */
   isBefore(time : number) : boolean {
-    const period = this._periods[0];
+    const period = this._periods.head();
     return !period || period.start > time;
   }
 
@@ -162,7 +103,7 @@ export default class ConsecutivePeriodsList {
    * @returns {boolean}
    */
   isAfter(time : number) : boolean {
-    const period = this._periods[this._periods.length - 1];
+    const period = this._periods.last();
     return !period || (period.end != null && period.end <= time);
   }
 }

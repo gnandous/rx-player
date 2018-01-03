@@ -126,6 +126,8 @@ export interface IPipelineResponse {
 export interface IBufferClockTick {
   currentTime : number;
   readyState : number;
+
+  // TODO Rename "baseTime" or something which will be currentTime + timeOffset
   timeOffset : number;
   stalled : object|null;
   liveGap? : number;
@@ -191,12 +193,12 @@ function getBufferPaddings(
  * @returns {Observable}
  */
 export default function RepresentationBuffer({
-  clock$,
-  content,
-  queuedSourceBuffer,
-  segmentBookkeeper,
-  pipeline,
-  wantedBufferAhead$,
+  clock$, // emit current playback informations
+  content, // all informations about the content we want
+  queuedSourceBuffer, // allows to interact with the SourceBuffer
+  segmentBookkeeper, // keep track of what segments already are in the SourceBuffer
+  pipeline, // allows to download new segments
+  wantedBufferAhead$, // emit the buffer goal
 } : IRepresentationBufferArguments) : Observable<IRepresentationBufferEvent> {
   const {
     manifest,
@@ -208,10 +210,11 @@ export default function RepresentationBuffer({
   // will be used to emit messages to the calling function
   const messageSubject : Subject<IRepresentationBufferEvent> = new Subject();
 
-  const { high : HIGH_PADDING, low : LOW_PADDING } = getBufferPaddings(adaptation);
+  const { high : highPadding, low : lowPadding } = getBufferPaddings(adaptation);
+
   /**
    * Saved state of the init segment for this representation to give it back to the
-   * pipeline on subsequent downloads
+   * pipeline on subsequent downloads.
    * @type {Object|null}
    */
   let initSegmentInfos : IBufferSegmentInfos|null = null;
@@ -219,7 +222,8 @@ export default function RepresentationBuffer({
   /**
    * Keep track of currently downloaded segments:
    *   - avoid re-downloading them when they are pending.
-   *   - allows to know if the buffer is idle or waiting on segments.
+   *   - allows to know if the buffer is idle or waiting on segments to be
+   *     downloaded.
    * @type {Object}
    */
   const queuedSegments = new SimpleSet();
@@ -254,7 +258,7 @@ export default function RepresentationBuffer({
     const { start, end } = range;
     const duration = end - start;
 
-    // XXX TODO
+    // TODO Better solution for HSS refresh?
     // get every segments currently downloaded and loaded
     const segments = segmentBookkeeper.inventory
       .map(s => s.infos.segment);
@@ -460,7 +464,7 @@ export default function RepresentationBuffer({
       basePosition,
       bufferGoal,
       limits,
-      { low: LOW_PADDING, high: HIGH_PADDING }
+      { low: lowPadding, high: highPadding }
     );
 
     const neededSegments = getSegmentsListToInject(

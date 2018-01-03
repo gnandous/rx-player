@@ -56,6 +56,7 @@ export interface IRepresentationChangeEvent {
   type : "representationChange";
   value : {
     type : SupportedBufferTypes;
+    period : Period;
     representation : Representation|null;
   };
 }
@@ -191,6 +192,7 @@ export default class AdaptationBufferManager {
           type: "representationChange" as "representationChange",
           value: {
             type: adaptation.type,
+            period,
             representation,
           },
         }).concat(createRepresentationBuffer(representation))

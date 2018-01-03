@@ -36,6 +36,7 @@ import {
   getPlayedSizeOfRange,
   getSizeOfRange,
 } from "../../utils/ranges";
+import SortedList from "../../utils/sorted_list";
 
 import {
   exitFullscreen,
@@ -242,35 +243,46 @@ class Player extends EventEmitter {
   };
 
   /**
-   * Store current representations for the loaded content.
+   * Store every active Periods.
+   *
+   * The rules are the same than in lower layers:
+   *   - The first active Period is the currently played one
+   *   - Any subsequent one are pre-loaded period, consecutive in chronological
+   *     order.
+   *
+   * null if no period is active
    * @private
-   * @type {Object}
+   * @type {SortedList}
    */
-  private _priv_currentRepresentations : {
-    audio? : Representation|null;
-    video? : Representation|null;
-    text? : Representation|null;
-    image? : Representation|null;
-  };
+  private _priv_activePeriods : SortedList<Period> | null;
 
   /**
    * Store current adaptations for the loaded content.
+   *
+   * null if no adaptation is active
    * @private
-   * @type {Object}
+   * @type {Map}
    */
-  private _priv_currentAdaptations : {
+  private _priv_activeAdaptations : Map<Period, {
     audio? : Adaptation|null;
     video? : Adaptation|null;
     text? : Adaptation|null;
     image? : Adaptation|null;
-  };
+  }> | null;
 
   /**
-   * Store current period for the loaded content.
+   * Store currently downloaded representations per active period.
+   *
+   * null if no representation is active
    * @private
-   * @type {Object}
+   * @type {Map}
    */
-  private _priv_currentPeriod : Period|null;
+  private _priv_activeRepresentations : Map<Period, {
+    audio? : Representation|null;
+    video? : Representation|null;
+    text? : Representation|null;
+    image? : Representation|null;
+  }> | null;
 
   /**
    * Store wanted configuration for the limitVideoWidth option.
@@ -492,9 +504,9 @@ class Player extends EventEmitter {
     this._priv_abrManager = null;
 
     this._priv_currentManifest = null;
-    this._priv_currentRepresentations = {};
-    this._priv_currentAdaptations = {};
-    this._priv_currentPeriod = null;
+    this._priv_activeRepresentations = null;
+    this._priv_activeAdaptations = null;
+    this._priv_activePeriods = null;
 
     this._priv_recordedEvents = {}; // event memory
 
@@ -785,7 +797,10 @@ class Player extends EventEmitter {
    * @returns {Object|null}
    */
   getCurrentPeriod() : Period|null {
-    return this._priv_currentPeriod;
+    if (!this._priv_activePeriods) {
+      return null;
+    }
+    return this._priv_activePeriods.head() || null;
   }
 
   /**
@@ -794,10 +809,11 @@ class Player extends EventEmitter {
    * @returns {Object|null}
    */
   getCurrentAdaptations() {
-    if (!this._priv_currentManifest){
+    const currentPeriod = this.getCurrentPeriod();
+    if (!currentPeriod || !this._priv_activeAdaptations){
       return null;
     }
-    return this._priv_currentAdaptations;
+    return this._priv_activeAdaptations.get(currentPeriod) || null;
   }
 
   /**
@@ -806,10 +822,11 @@ class Player extends EventEmitter {
    * @returns {Object|null}
    */
   getCurrentRepresentations() {
-    if (!this._priv_currentManifest){
+    const currentPeriod = this.getCurrentPeriod();
+    if (!currentPeriod || !this._priv_activeRepresentations){
       return null;
     }
-    return this._priv_currentRepresentations;
+    return this._priv_activeRepresentations.get(currentPeriod) || null;
   }
 
   /**
@@ -998,7 +1015,12 @@ class Player extends EventEmitter {
    * @returns {Array.<Number>}
    */
   getAvailableVideoBitrates() : number[] {
-    const videoAdaptation = this._priv_currentAdaptations.video;
+    const currentPeriod = this.getCurrentPeriod();
+    if (!currentPeriod || !this._priv_activeAdaptations){
+      return [];
+    }
+    const adaptations = this._priv_activeAdaptations.get(currentPeriod);
+    const videoAdaptation = adaptations && adaptations.video;
     if (!videoAdaptation) {
       return [];
     }
@@ -1011,7 +1033,12 @@ class Player extends EventEmitter {
    * @returns {Array.<Number>}
    */
   getAvailableAudioBitrates() : number[] {
-    const audioAdaptation = this._priv_currentAdaptations.audio;
+    const currentPeriod = this.getCurrentPeriod();
+    if (!currentPeriod || !this._priv_activeAdaptations){
+      return [];
+    }
+    const adaptations = this._priv_activeAdaptations.get(currentPeriod);
+    const audioAdaptation = adaptations && adaptations.audio;
     if (!audioAdaptation) {
       return [];
     }
@@ -1354,7 +1381,7 @@ class Player extends EventEmitter {
     if (!this._priv_languageManager) {
       return undefined;
     }
-    return this._priv_languageManager.getCurrentAudioTrack();
+    return this._priv_languageManager.getChosenAudioTrack();
   }
 
   /**
@@ -1365,7 +1392,7 @@ class Player extends EventEmitter {
     if (!this._priv_languageManager) {
       return undefined;
     }
-    return this._priv_languageManager.getCurrentTextTrack();
+    return this._priv_languageManager.getChosenTextTrack();
   }
 
   /**
@@ -1405,7 +1432,7 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Disable subtitles for the current Period.
+   * Disable subtitles for the current content.
    */
   disableTextTrack() : void {
     if (!this._priv_languageManager) {
@@ -1465,9 +1492,9 @@ class Player extends EventEmitter {
     }
 
     // manifest
-    this._priv_currentRepresentations = {};
-    this._priv_currentAdaptations = {};
-    this._priv_currentPeriod = null;
+    this._priv_activeRepresentations = null;
+    this._priv_activeAdaptations = null;
+    this._priv_activePeriods = null;
     this._priv_currentManifest = null;
 
     // event memory
@@ -1512,16 +1539,13 @@ class Player extends EventEmitter {
         this._priv_onPeriodReady(streamInfos.value);
         break;
       case "finishedPeriod":
-        // this._priv_onFinishedPeriod(streamInfos.value);
+        this._priv_onFinishedPeriod(streamInfos.value);
         break;
       case "representationChange":
         this._priv_onRepresentationChange(streamInfos.value);
         break;
       case "adaptationChange":
         this._priv_onAdaptationChange(streamInfos.value);
-        break;
-      case "periodChange":
-        this._priv_onPeriodChange(streamInfos.value);
         break;
       case "manifestUpdate":
         this._priv_onManifestUpdate(streamInfos.value);
@@ -1602,12 +1626,12 @@ class Player extends EventEmitter {
     this._priv_currentManifest = manifest;
     this._priv_abrManager = abrManager;
 
-    // XXX TODO To remove
-    this._priv_languageManager =
-      new LanguageManager(manifest.periods[0].adaptations, {
-        audio$: new Subject(),
-        text$: new Subject(),
-      });
+    this._priv_languageManager = new LanguageManager({
+      preferredAudioTracks: this._priv_initialAudioTrack === undefined ?
+        undefined : [this._priv_initialAudioTrack],
+      preferredTextTracks: this._priv_initialTextTrack === undefined ?
+        undefined : [this._priv_initialTextTrack],
+    });
     this.trigger("manifestChange", manifest);
   }
 
@@ -1624,71 +1648,48 @@ class Player extends EventEmitter {
     period : Period;
     adaptation$ : Subject<Adaptation|null>;
   }) : void {
-    const {
-      type,
-      period,
-      adaptation$,
-    } = value;
-    const adaptations = period.adaptations[type];
-    if (adaptations && adaptations.length) {
-      adaptation$.next(adaptations[0]);
-    } else {
-      adaptation$.next(null);
+    const { type, period, adaptation$ } = value;
+
+    if (!this._priv_activePeriods) {
+      this._priv_activePeriods = new SortedList<Period>((a, b) => a.start - b.start);
     }
-    // const { period, adaptations$ } = value;
+    this._priv_activePeriods.add(period);
 
-    // const audio$ = adaptations$.audio || new Subject();
-    // const text$ = adaptations$.text || new Subject();
-
-    // // set language management for audio and text
-    // this._priv_languageManager =
-    //   new LanguageManager(period.adaptations, {
-    //     audio$,
-    //     text$,
-    //   });
-
-    // // set initial adaptations
-    // for (const bufferType of Object.keys(adaptations$)) {
-    //   const adaptations = period.getAdaptationsForType(
-    //     bufferType as SupportedBufferTypes
-    //   );
-
-    //   // if we have adaptations for the given type, make a choice.
-    //   // if we do not, do not emit anything for it.
-    //   if (adaptations.length) {
-    //     if (bufferType === "audio" && this._priv_languageManager) {
-    //       this._priv_languageManager
-    //         .setInitialAudioTrack(this._priv_initialAudioTrack);
-    //     } else if (bufferType === "text" && this._priv_languageManager) {
-    //       this._priv_languageManager
-    //         .setInitialTextTrack(this._priv_initialTextTrack);
-    //     } else {
-    //       const adaptation$ = adaptations$[bufferType as SupportedBufferTypes];
-    //       (adaptation$ as Subject<Adaptation|null>).next(adaptations[0]);
-    //     }
-    //   }
-    // }
+    if ((type === "audio" || type === "text")) {
+      if (!this._priv_languageManager) {
+        log.error(`LanguageManager not instanciated for a new ${type} period`);
+        adaptation$.next(null);
+      } else {
+        this._priv_languageManager.addPeriod(type, period, adaptation$);
+      }
+    } else {
+      const adaptations = period.adaptations[type];
+      if (adaptations && adaptations.length) {
+        adaptation$.next(adaptations[0]);
+      } else {
+        adaptation$.next(null);
+      }
+    }
   }
 
-  /**
-   * Triggered each time the period considered by the stream changes.
-   * @param {Object} value
-   * @param {Object} value.period
-   */
-  private _priv_onPeriodChange(value : {
+  private _priv_onFinishedPeriod(value : {
+    type : SupportedBufferTypes;
     period : Period;
   }) : void {
-    const { period } = value;
-    this._priv_currentPeriod = period;
-    this.trigger("periodChange", value.period);
-  }
+    const { type, period } = value;
 
-  // private _priv_onFinishedPeriod(value : {
-  //   period : Period;
-  // }) : void {
-  //   // XXX TODO
-  //   log.warn(value.period, this._priv_languageManager);
-  // }
+    if (!this._priv_activePeriods) {
+      log.error("API: No active period yet finishedPeriod event received.");
+    } else {
+      this._priv_activePeriods.removeFirst(period);
+    }
+
+    if (type === "audio" || type === "text") {
+      if (this._priv_languageManager) {
+        this._priv_languageManager.removePeriod(type, period);
+      }
+    }
+  }
 
   private _priv_onManifestUpdate(value : { manifest : Manifest }) : void {
     if (__DEV__) {
@@ -1699,8 +1700,7 @@ class Player extends EventEmitter {
     this._priv_currentManifest = manifest;
 
     if (this._priv_languageManager) {
-      // XXX TODO
-      this._priv_languageManager.updateAdaptations(manifest.adaptations);
+      this._priv_languageManager.update();
     }
 
     this.trigger("manifestUpdate", manifest);
@@ -1714,20 +1714,33 @@ class Player extends EventEmitter {
   private _priv_onAdaptationChange({
     type,
     adaptation,
+    period,
   } : {
     type : SupportedBufferTypes;
     adaptation : Adaptation|null;
+    period : Period;
   }) : void {
-    this._priv_currentAdaptations[type] = adaptation;
+    if (!this._priv_activeAdaptations) {
+      this._priv_activeAdaptations = new Map();
+    }
+
+    const activeAdaptations = this._priv_activeAdaptations.get(period);
+    if (!activeAdaptations) {
+      this._priv_activeAdaptations.set(period, { [type]: adaptation });
+    } else {
+      activeAdaptations[type] = adaptation;
+    }
 
     if (!this._priv_languageManager) {
       return;
     }
+
+    // XXX TODO only for active period + new event on period change?
     if (type === "audio") {
-      const audioTrack = this._priv_languageManager.getCurrentAudioTrack();
+      const audioTrack = this._priv_languageManager.getChosenAudioTrack();
       this._priv_recordState("audioTrack", audioTrack);
     } else if (type === "text") {
-      const textTrack = this._priv_languageManager.getCurrentTextTrack();
+      const textTrack = this._priv_languageManager.getChosenTextTrack();
       this._priv_recordState("textTrack", textTrack);
     }
   }
@@ -1740,20 +1753,30 @@ class Player extends EventEmitter {
    */
   private _priv_onRepresentationChange({
     type,
+    period,
     representation,
   }: {
     type : SupportedBufferTypes;
+    period : Period;
     representation : Representation|null;
   }) : void {
-    this._priv_currentRepresentations[type] = representation;
+    if (!this._priv_activeRepresentations) {
+      this._priv_activeRepresentations = new Map();
+    }
+
+    const activeRepresentations = this._priv_activeRepresentations.get(period);
+    if (!activeRepresentations) {
+      this._priv_activeRepresentations.set(period, { [type]: representation });
+    } else {
+      activeRepresentations[type] = representation;
+    }
 
     const bitrate = representation && representation.bitrate;
     if (bitrate != null) {
       this._priv_lastBitrates[type] = bitrate;
     }
 
-    // TODO Emit representationChange?
-
+    // XXX TODO only for active period + new event on period change?
     if (type === "video") {
       this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
     } else if (type === "audio") {
@@ -1761,6 +1784,11 @@ class Player extends EventEmitter {
     }
   }
 
+  /**
+   * @param {Object} obj
+   * @param {string} type
+   * @param {number|undefined} bitrate
+   */
   private _priv_onBitrateEstimationChange({
     type,
     bitrate,

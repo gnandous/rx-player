@@ -86,22 +86,23 @@ function checkAdaptations(
       }
     })
 
-    // 2. filter those without representations
-    .filter(({ representations }) => representations.length)
-
     .map((adaptation) => {
-      // 3. Filter from codecs and throw if none supported
+      // 2. Filter from codecs and throw if none supported
       // TODO be more resilient
       adaptation.representations = filterSupportedRepresentations(
         adaptation.type,
         adaptation.representations
       );
 
-      if (adaptation.representations.length === 0) {
-        throw new MediaError("MANIFEST_INCOMPATIBLE_CODECS_ERROR", null, true);
-      }
+      // XXX TODO
+      // if (adaptation.representations.length === 0) {
+      //   throw new MediaError("MANIFEST_INCOMPATIBLE_CODECS_ERROR", null, true);
+      // }
       return adaptation;
-    }) as IAdaptationArguments[];
+    })
+
+    // 3. filter those without representations
+    .filter(({ representations }) => representations.length)  as IAdaptationArguments[];
 
   // 4. throw if no adaptation
   if (adaptations.length === 0) {
