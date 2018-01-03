@@ -18,6 +18,9 @@ import arrayFind = require("array-find");
 import { Representation } from "../../manifest";
 
 /**
+ * Filter representations based on their width:
+ *   - the highest width considered will be the one linked to the first
+ *     representation which has a superior width to the one given.
  * @param {Array.<Object>} representations - The representations array
  * @param {Number} width
  * @returns {Array.<Object>}
