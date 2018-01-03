@@ -154,15 +154,23 @@ class Player extends EventEmitter {
   private _priv_unsubscribeLoadedVideo$ : Subject<void>;
 
   /**
+   * Emit true when the Stream is cleaning-up and thus cannot be re-created
+   * before this asynchronous process is finished.
+   * @private
+   * @type {BehaviorSubject}
+   */
+  private _priv_streamLock$ : BehaviorSubject<boolean>;
+
+  /**
    * Emit warnings coming from the Stream.
-   * TODO Use regular Stream observable for that
+   * TODO Use regular Stream observable for that?
    * @private
    * @type {Subject}
    */
   private _priv_errorStream$ : Subject<Error|CustomError>;
 
   /**
-   * Emit false when the player is in a "paused" state, true when it goes in
+   * Emit false when the player is into a "paused" state, true when it goes into
    * a "playing" state.
    * @private
    * @type {ReplaySubject}
@@ -171,18 +179,11 @@ class Player extends EventEmitter {
 
   /**
    * Last speed set by the user.
+   * Used instead of videoElement.playbackRate to allow more flexibility.
    * @private
    * @type {BehaviorSubject>}
    */
   private _priv_speed$ : BehaviorSubject<number>;
-
-  /**
-   * Emit true when the Stream is cleaning-up and thus cannot be re-created
-   * before this asynchronous process is finished.
-   * @private
-   * @type {BehaviorSubject}
-   */
-  private _priv_streamLock$ : BehaviorSubject<boolean>;
 
   /**
    * Wanted buffer goal.
@@ -224,8 +225,8 @@ class Player extends EventEmitter {
    * @type {Object}
    */
   private _priv_initialMaxAutoBitrates : {
-    audio : number;
-    video : number;
+    audio : number; // has a default in the config
+    video : number; // has a default in the config
     text? : number;
     image? : number;
   };
@@ -236,8 +237,8 @@ class Player extends EventEmitter {
    * @type {Object}
    */
   private _priv_manualBitrates : {
-    audio : number;
-    video : number;
+    audio : number; // has a default in the config
+    video : number; // has a default in the config
     text? : number;
     image? : number;
   };
@@ -791,6 +792,22 @@ class Player extends EventEmitter {
   getManifest() : Manifest|null {
     return this._priv_currentManifest || null;
   }
+
+  // XXX TODO Private for debugging
+  // getActivePeriods() : Period[] {
+  //   if (!this._priv_activePeriods) {
+  //     return [];
+  //   }
+  //   return this._priv_activePeriods.unwrap();
+  // }
+
+  // getActiveAdaptations() {
+  //   return this._priv_activeAdaptations;
+  // }
+
+  // getActiveRepresentations() {
+  //   return this._priv_activeRepresentations;
+  // }
 
   /**
    * Returns the current Period.
