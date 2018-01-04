@@ -81,42 +81,7 @@ interface ILMPeriodItem {
   text? : ILMTextInfos;
 }
 
-function findPeriodIndex(
-  periods : SortedList<ILMPeriodItem>,
-  period : Period
-) : number|undefined {
-  for (let i = 0; i < periods.length(); i++) {
-    const periodI = periods.get(i);
-    if (periodI.period.id === period.id) {
-      return i;
-    }
-  }
-}
-
-function getPeriodItem(
-  periods : SortedList<ILMPeriodItem>,
-  period : Period
-) : ILMPeriodItem|undefined {
-  for (let i = 0; i < periods.length(); i++) {
-    const periodI = periods.get(i);
-    if (periodI.period.id === period.id) {
-      return periodI;
-    }
-  }
-}
-
 const PREFERENCES_MAX_LENGTH = 10;
-
-function addPreference<T extends IAudioTrackPreference|ITextTrackPreference>(
-  preferences : T[],
-  preference : T
-) {
-  // TODO only one reference of the same language per Array?
-  if (preferences.length >= PREFERENCES_MAX_LENGTH - 1) {
-    preferences.pop();
-  }
-  preferences.unshift(preference);
-}
 
 /**
  * Manage audio and text tracks for all active periods.
@@ -583,7 +548,7 @@ function isTextAdaptationOptimal(
     }
 
   }
-  return true; // no optimal adaptation, just return true
+  return adaptation === null;
 }
 
 function findFirstOptimalTextAdaptation(
@@ -612,6 +577,41 @@ function findFirstOptimalTextAdaptation(
 
   }
 
-  // no optimal adaptation, just return the first one
-  return textAdaptations[0];
+  // no optimal adaptation
+  return null;
+}
+
+function findPeriodIndex(
+  periods : SortedList<ILMPeriodItem>,
+  period : Period
+) : number|undefined {
+  for (let i = 0; i < periods.length(); i++) {
+    const periodI = periods.get(i);
+    if (periodI.period.id === period.id) {
+      return i;
+    }
+  }
+}
+
+function getPeriodItem(
+  periods : SortedList<ILMPeriodItem>,
+  period : Period
+) : ILMPeriodItem|undefined {
+  for (let i = 0; i < periods.length(); i++) {
+    const periodI = periods.get(i);
+    if (periodI.period.id === period.id) {
+      return periodI;
+    }
+  }
+}
+
+function addPreference<T extends IAudioTrackPreference|ITextTrackPreference>(
+  preferences : T[],
+  preference : T
+) {
+  // TODO only one reference of the same language per Array?
+  if (preferences.length >= PREFERENCES_MAX_LENGTH - 1) {
+    preferences.pop();
+  }
+  preferences.unshift(preference);
 }

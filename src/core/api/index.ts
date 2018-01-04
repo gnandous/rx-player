@@ -51,7 +51,6 @@ import {
   videoWidth$,
 } from "../../compat/events";
 import {
-  CustomError,
   ErrorCodes,
   ErrorTypes,
 } from "../../errors";
@@ -141,33 +140,26 @@ class Player extends EventEmitter {
 
   /**
    * Emit when the player is disposed to perform clean-up.
+   * The player will be unusable after that.
    * @private
    * @type {Subject}
    */
   private _priv_destroy$ : Subject<void>;
 
   /**
-   * Emit when a video is stopped to perform clean-up.
+   * Emit to stop the current content and clean-up all related ressources.
    * @private
    * @type {Subject}
    */
-  private _priv_unsubscribeLoadedVideo$ : Subject<void>;
+  private _priv_stopCurrentContent$ : Subject<void>;
 
   /**
-   * Emit true when the Stream is cleaning-up and thus cannot be re-created
-   * before this asynchronous process is finished.
+   * Emit true when the previous content is cleaning-up, false when it's done.
+   * A new content cannot be launched until it emits false.
    * @private
    * @type {BehaviorSubject}
    */
   private _priv_streamLock$ : BehaviorSubject<boolean>;
-
-  /**
-   * Emit warnings coming from the Stream.
-   * TODO Use regular Stream observable for that?
-   * @private
-   * @type {Subject}
-   */
-  private _priv_errorStream$ : Subject<Error|CustomError>;
 
   /**
    * Emit false when the player is into a "paused" state, true when it goes into
@@ -186,7 +178,7 @@ class Player extends EventEmitter {
   private _priv_speed$ : BehaviorSubject<number>;
 
   /**
-   * Wanted buffer goal.
+   * Emit the last wanted buffer goal.
    * @private
    * @type {BehaviorSubject}
    */
@@ -477,10 +469,9 @@ class Player extends EventEmitter {
       })
       .subscribe((x : TextTrack[]) => this._priv_onNativeTextTracksNext(x));
 
-    this._priv_errorStream$ = new Subject();
     this._priv_playing$ = new ReplaySubject(1);
     this._priv_speed$ = new BehaviorSubject(videoElement.playbackRate);
-    this._priv_unsubscribeLoadedVideo$ = new Subject();
+    this._priv_stopCurrentContent$ = new Subject();
     this._priv_streamLock$ = new BehaviorSubject(false);
     this._priv_wantedBufferAhead$ = new BehaviorSubject(wantedBufferAhead);
     this._priv_maxBufferAhead$ = new BehaviorSubject(maxBufferAhead);
@@ -524,7 +515,7 @@ class Player extends EventEmitter {
    */
   stop() : void {
     if (this.state !== PLAYER_STATES.STOPPED) {
-      this._priv_unsubscribeLoadedVideo$.next();
+      this._priv_stopCurrentContent$.next();
       this._priv_cleanUpCurrentContentState();
       this._priv_setPlayerState(PLAYER_STATES.STOPPED);
     }
@@ -545,8 +536,7 @@ class Player extends EventEmitter {
     this._priv_destroy$.complete();
 
     // Complete all subjects
-    this._priv_unsubscribeLoadedVideo$.complete();
-    this._priv_errorStream$.complete();
+    this._priv_stopCurrentContent$.complete();
     this._priv_playing$.complete();
     this._priv_speed$.complete();
     this._priv_streamLock$.complete();
@@ -631,16 +621,16 @@ class Player extends EventEmitter {
       throttle: this._priv_throttleWhenHidden ? {
         video: isInBackground$()
           .map(isBg => isBg ? 0 : Infinity)
-          .takeUntil(this._priv_unsubscribeLoadedVideo$),
+          .takeUntil(this._priv_stopCurrentContent$),
       } : {},
       limitWidth: this._priv_limitVideoWidth ? {
         video: videoWidth$(videoElement)
-          .takeUntil(this._priv_unsubscribeLoadedVideo$),
+          .takeUntil(this._priv_stopCurrentContent$),
       } : {},
     };
 
     /**
-     * Options used by the Buffer(s)
+     * Options related to the Buffer(s)
      * @type {Object}
      */
     const bufferOptions = {
@@ -669,21 +659,19 @@ class Player extends EventEmitter {
       adaptiveOptions,
       autoPlay,
       bufferOptions,
-      errorStream: this._priv_errorStream$,
+      clock$,
+      isDirectFile: !withMediaSource,
       keySystems,
       speed$: this._priv_speed$,
       startAt,
+      supplementaryImageTracks,
+      supplementaryTextTracks,
       textTrackOptions,
-      timings$: clock$,
       transport: transportObj,
       url,
       videoElement,
-      withMediaSource,
-
-      supplementaryImageTracks,
-      supplementaryTextTracks,
     })
-      .takeUntil(this._priv_unsubscribeLoadedVideo$)
+      .takeUntil(this._priv_stopCurrentContent$)
       .publish();
 
     /**
@@ -713,7 +701,7 @@ class Player extends EventEmitter {
     const stateChanges$ = loaded.mapTo(PLAYER_STATES.LOADED)
       .concat(
         Observable.combineLatest(this._priv_playing$, stalled$)
-          .takeUntil(this._priv_unsubscribeLoadedVideo$)
+          .takeUntil(this._priv_stopCurrentContent$)
           .map(([isPlaying, stalledStatus]) => {
             if (stalledStatus) {
               return (stalledStatus.state === "seeking") ?
@@ -738,22 +726,22 @@ class Player extends EventEmitter {
       .map(evt => evt.type === "play");
 
     let streamDisposable : Subscription|undefined;
-    this._priv_unsubscribeLoadedVideo$.take(1).subscribe(() => {
+    this._priv_stopCurrentContent$.take(1).subscribe(() => {
       if (streamDisposable) {
         streamDisposable.unsubscribe();
       }
     });
 
     videoPlays$
-      .takeUntil(this._priv_unsubscribeLoadedVideo$)
+      .takeUntil(this._priv_stopCurrentContent$)
       .subscribe(x => this._priv_onPlayPauseNext(x), noop);
 
     clock$
-      .takeUntil(this._priv_unsubscribeLoadedVideo$)
+      .takeUntil(this._priv_stopCurrentContent$)
       .subscribe(x => this._priv_triggerTimeChange(x), noop);
 
     stateChanges$
-      .takeUntil(this._priv_unsubscribeLoadedVideo$)
+      .takeUntil(this._priv_stopCurrentContent$)
       .subscribe(x => this._priv_setPlayerState(x), noop);
 
     stream.subscribe(
@@ -762,17 +750,11 @@ class Player extends EventEmitter {
       () => this._priv_onStreamComplete()
     );
 
-    this._priv_errorStream$
-      .takeUntil(this._priv_unsubscribeLoadedVideo$)
-      .subscribe(
-        x => this._priv_onErrorStreamNext(x)
-      );
-
     // connect the stream when the lock is inactive
     this._priv_streamLock$
       .filter((isLocked) => !isLocked)
       .take(1)
-      .takeUntil(this._priv_unsubscribeLoadedVideo$)
+      .takeUntil(this._priv_stopCurrentContent$)
       .subscribe(() => {
         streamDisposable = stream.connect();
       });
@@ -793,39 +775,6 @@ class Player extends EventEmitter {
    */
   getManifest() : Manifest|null {
     return this._priv_currentManifest || null;
-  }
-
-  /**
-   * Get all currently active Periods.
-   * ATM only used for debugging, not part of the API.
-   * @returns {Array.<Period>}
-   */
-  _priv_getActivePeriods() : Period[] {
-    if (!this._priv_activePeriods) {
-      return [];
-    }
-    return this._priv_activePeriods.unwrap()
-      .map(activePeriodItem => activePeriodItem.period);
-  }
-
-  /**
-   * Get all currently active Adaptations, per Period.
-   * ATM only used for debugging, not part of the API.
-   * @returns {Map|null}
-   */
-  _priv_getActiveAdaptations(
-  ) : Map<Period, Partial<Record<SupportedBufferTypes, Adaptation|null>>> | null {
-    return this._priv_activeAdaptations;
-  }
-
-  /**
-   * Get all currently active Representations, per Period.
-   * ATM only used for debugging, not part of the API.
-   * @returns {Map|null}
-   */
-  _priv_getActiveRepresentations(
-  ) : Map<Period, Partial<Record<SupportedBufferTypes, Representation|null>>> | null {
-    return this._priv_activeRepresentations;
   }
 
   /**
@@ -1187,11 +1136,11 @@ class Player extends EventEmitter {
     time : number | { relative : number } | { position : number } |
     { wallClockTime : number }
   ) : number {
-    if (!this._priv_currentManifest) {
-      throw new Error("player: no manifest loaded");
-    }
     if (!this.videoElement) {
       throw new Error("Disposed player");
+    }
+    if (!this._priv_currentManifest) {
+      throw new Error("player: no manifest loaded");
     }
 
     let positionWanted : number|undefined;
@@ -1237,6 +1186,7 @@ class Player extends EventEmitter {
     if (!this.videoElement) {
       throw new Error("Disposed player");
     }
+
     if (goFull) {
       requestFullscreen(this.videoElement);
     } else {
@@ -1252,6 +1202,7 @@ class Player extends EventEmitter {
     if (!this.videoElement) {
       throw new Error("Disposed player");
     }
+
     const videoElement = this.videoElement;
     if (volume !== videoElement.volume) {
       videoElement.volume = volume;
@@ -1518,6 +1469,39 @@ class Player extends EventEmitter {
   }
 
   /**
+   * Get all currently active Periods.
+   * ATM only used for debugging, not part of the API.
+   * @returns {Array.<Period>}
+   */
+  _priv_getActivePeriods() : Period[] {
+    if (!this._priv_activePeriods) {
+      return [];
+    }
+    return this._priv_activePeriods.unwrap()
+      .map(activePeriodItem => activePeriodItem.period);
+  }
+
+  /**
+   * Get all currently active Adaptations, per Period.
+   * ATM only used for debugging, not part of the API.
+   * @returns {Map|null}
+   */
+  _priv_getActiveAdaptations(
+  ) : Map<Period, Partial<Record<SupportedBufferTypes, Adaptation|null>>> | null {
+    return this._priv_activeAdaptations;
+  }
+
+  /**
+   * Get all currently active Representations, per Period.
+   * ATM only used for debugging, not part of the API.
+   * @returns {Map|null}
+   */
+  _priv_getActiveRepresentations(
+  ) : Map<Period, Partial<Record<SupportedBufferTypes, Representation|null>>> | null {
+    return this._priv_activeRepresentations;
+  }
+
+  /**
    * Reset all state properties relative to a playing content.
    */
   private _priv_cleanUpCurrentContentState() : void {
@@ -1602,6 +1586,9 @@ class Player extends EventEmitter {
       case "started":
         this._priv_onStreamStarted(streamInfos.value);
         break;
+      case "warning":
+        this._priv_onStreamWarning(streamInfos.value);
+        break;
       case "added-segment":
         const { bufferType, parsed } = streamInfos.value;
         if (bufferType === "image") {
@@ -1621,7 +1608,7 @@ class Player extends EventEmitter {
    * errors).
    * @param {Object} streamInfos
    */
-  private _priv_onErrorStreamNext(error : Error) : void {
+  private _priv_onStreamWarning(error : Error) : void {
     this.trigger("warning", error);
   }
 
@@ -1630,7 +1617,7 @@ class Player extends EventEmitter {
    * @param {Object} streamInfos
    */
   private _priv_onStreamError(error : Error) : void {
-    this._priv_unsubscribeLoadedVideo$.next();
+    this._priv_stopCurrentContent$.next();
     this._priv_cleanUpCurrentContentState();
     this._priv_fatalError = error;
     this._priv_setPlayerState(PLAYER_STATES.STOPPED);
@@ -1652,7 +1639,7 @@ class Player extends EventEmitter {
    * @param {Object} streamInfos
    */
   private _priv_onStreamComplete() : void {
-    this._priv_unsubscribeLoadedVideo$.next();
+    this._priv_stopCurrentContent$.next();
     this._priv_cleanUpCurrentContentState();
     this._priv_setPlayerState(PLAYER_STATES.ENDED);
   }
@@ -1681,6 +1668,60 @@ class Player extends EventEmitter {
     this.trigger("manifestChange", manifest);
   }
 
+  private _priv_addActivePeriod(period : Period, type : SupportedBufferTypes) : void {
+    // lazily create this._priv_activePeriods
+    if (!this._priv_activePeriods) {
+      this._priv_activePeriods = new SortedList((a, b) =>
+        a.period.start - b.period.start);
+    }
+
+    // add or update the periodItem
+    const periodItem = this._priv_activePeriods.find(p => p.period === period);
+    if (!periodItem) {
+      // Keep track of the previous active period, to see if it changes
+      const previousCurrentPeriod = this.getCurrentPeriod();
+
+      const newPeriodItem = {
+        period,
+        buffers: new Set<SupportedBufferTypes>(),
+      };
+      newPeriodItem.buffers.add(type);
+      this._priv_activePeriods.add(newPeriodItem);
+
+      // emit "periodChange" if the added period is the current one
+      const currentPeriod = this.getCurrentPeriod();
+      if (currentPeriod !== previousCurrentPeriod) {
+        this._priv_recordState("period", currentPeriod);
+      }
+    } else {
+      periodItem.buffers.add(type);
+    }
+  }
+
+  private _priv_removeActivePeriod(period : Period, type : SupportedBufferTypes) : void {
+    const previousCurrentPeriod = this.getCurrentPeriod();
+
+    if (!this._priv_activePeriods || this._priv_activePeriods.length() === 0) {
+      log.error("API: finishedPeriod event received while no period is active.");
+    } else {
+      const periodItem = this._priv_activePeriods.find(p => p.period === period);
+      if (!periodItem) {
+        log.error("API: finishedPeriod event received for an unknown period.");
+      } else {
+        periodItem.buffers.delete(type);
+        if (!periodItem.buffers.size) {
+          this._priv_activePeriods.removeFirst(periodItem);
+
+          // emit "periodChange" if the removed period was the current one
+          const currentPeriod = this.getCurrentPeriod();
+          if (currentPeriod !== previousCurrentPeriod) {
+            this._priv_recordState("period", currentPeriod);
+          }
+        }
+      }
+    }
+  }
+
   /**
    * Triggered each times the Stream "prepares" a new Period, and
    * needs the API to sent it its chosen adaptation.
@@ -1688,7 +1729,7 @@ class Player extends EventEmitter {
    * @param {Object} value
    * @param {Object} value.period
    * @param {Object} value.adaptations
-   * XXX TODO
+   * XXX TODO Simplify that mess
    */
   private _priv_onPeriodReady(value : {
     type : SupportedBufferTypes;
@@ -1697,28 +1738,7 @@ class Player extends EventEmitter {
   }) : void {
     const { type, period, adaptation$ } = value;
 
-    const previousCurrentPeriod = this.getCurrentPeriod();
-    if (!this._priv_activePeriods) {
-      this._priv_activePeriods = new SortedList((a, b) =>
-        a.period.start - b.period.start);
-    }
-
-    const periodItem = this._priv_activePeriods.find(p => p.period === period);
-    if (!periodItem) {
-      const newPeriodItem = {
-        period,
-        buffers: new Set<SupportedBufferTypes>(),
-      };
-      newPeriodItem.buffers.add(type);
-      this._priv_activePeriods.add(newPeriodItem);
-    } else {
-      periodItem.buffers.add(type);
-    }
-
-    const currentPeriod = this.getCurrentPeriod();
-    if (currentPeriod !== previousCurrentPeriod) {
-      this._priv_recordState("period", currentPeriod);
-    }
+    this._priv_addActivePeriod(period, type);
 
     if ((type === "audio" || type === "text")) {
       if (!this._priv_languageManager) {
@@ -1726,6 +1746,25 @@ class Player extends EventEmitter {
         adaptation$.next(null);
       } else {
         this._priv_languageManager.addPeriod(type, period, adaptation$);
+
+        if (this._priv_isCurrentPeriod(period)) {
+          if (type === "audio") {
+            const audioTrack = this._priv_languageManager.getChosenAudioTrack();
+            this._priv_recordState("audioTrack", audioTrack);
+          } else if (type === "text") {
+            const textTrack = this._priv_languageManager.getChosenTextTrack();
+            this._priv_recordState("textTrack", textTrack);
+          }
+        }
+      }
+
+      if (this._priv_isCurrentPeriod(period) && type === "audio") {
+        const activeRepresentations = this.getCurrentRepresentations();
+
+        if (activeRepresentations && activeRepresentations.audio != null) {
+          const bitrate = activeRepresentations.audio.bitrate;
+          this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
+        }
       }
     } else {
       const adaptations = period.adaptations[type];
@@ -1733,6 +1772,15 @@ class Player extends EventEmitter {
         adaptation$.next(adaptations[0]);
       } else {
         adaptation$.next(null);
+      }
+
+      if (this._priv_isCurrentPeriod(period) && type === "video") {
+        const activeRepresentations = this.getCurrentRepresentations();
+
+        if (activeRepresentations && activeRepresentations.video != null) {
+          const bitrate = activeRepresentations.video.bitrate;
+          this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
+        }
       }
     }
   }
@@ -1746,26 +1794,7 @@ class Player extends EventEmitter {
   }) : void {
     const { type, period } = value;
 
-    const previousCurrentPeriod = this.getCurrentPeriod();
-
-    if (!this._priv_activePeriods || this._priv_activePeriods.length() === 0) {
-      log.error("API: finishedPeriod event received while no period is active.");
-    } else {
-      const periodItem = this._priv_activePeriods.find(p => p.period === period);
-      if (!periodItem) {
-        log.error("API: finishedPeriod event received for an unknown period.");
-      } else {
-        periodItem.buffers.delete(type);
-        if (!periodItem.buffers.size) {
-          this._priv_activePeriods.removeFirst(periodItem);
-        }
-      }
-    }
-
-    const currentPeriod = this.getCurrentPeriod();
-    if (currentPeriod !== previousCurrentPeriod) {
-      this._priv_recordState("period", currentPeriod);
-    }
+    this._priv_removeActivePeriod(period, type);
 
     if (type === "audio" || type === "text") {
       if (this._priv_languageManager) {
@@ -1819,13 +1848,14 @@ class Player extends EventEmitter {
       return;
     }
 
-    // XXX TODO only for active period + new event on period change?
-    if (type === "audio") {
-      const audioTrack = this._priv_languageManager.getChosenAudioTrack();
-      this._priv_recordState("audioTrack", audioTrack);
-    } else if (type === "text") {
-      const textTrack = this._priv_languageManager.getChosenTextTrack();
-      this._priv_recordState("textTrack", textTrack);
+    if (this._priv_isCurrentPeriod(period)) {
+      if (type === "audio") {
+        const audioTrack = this._priv_languageManager.getChosenAudioTrack();
+        this._priv_recordState("audioTrack", audioTrack);
+      } else if (type === "text") {
+        const textTrack = this._priv_languageManager.getChosenTextTrack();
+        this._priv_recordState("textTrack", textTrack);
+      }
     }
   }
 
@@ -1861,11 +1891,12 @@ class Player extends EventEmitter {
       this._priv_lastBitrates[type] = bitrate;
     }
 
-    // XXX TODO only for active period + new event on period change?
-    if (type === "video") {
-      this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
-    } else if (type === "audio") {
-      this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
+    if (this._priv_isCurrentPeriod(period)) {
+      if (type === "video") {
+        this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
+      } else if (type === "audio") {
+        this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
+      }
     }
   }
 
@@ -1949,6 +1980,11 @@ class Player extends EventEmitter {
     }
 
     this.trigger("positionUpdate", positionData);
+  }
+
+  private _priv_isCurrentPeriod(period : Period) : boolean {
+    const activePeriod = this.getCurrentPeriod();
+    return activePeriod != null && activePeriod === period;
   }
 }
 

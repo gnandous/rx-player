@@ -15,6 +15,7 @@
  */
 
 import { Subject } from "rxjs/Subject";
+import { CustomError } from "../../errors";
 import Manifest, {
   Adaptation,
   Period,
@@ -48,6 +49,11 @@ export interface IStreamStartedEvent {
     abrManager : ABRManager;
     manifest : Manifest;
   };
+}
+
+export interface IStreamWarningEvent {
+  type : "warning";
+  value : Error|CustomError;
 }
 
 export interface IManifestUpdateEvent {
@@ -202,6 +208,13 @@ const STREAM_EVENTS = {
       },
     };
   },
+
+  warning(value : Error | CustomError) : IStreamWarningEvent {
+    return {
+      type: "warning",
+      value,
+    };
+  },
 };
 
 // Every possible item emitted by the Stream
@@ -216,6 +229,7 @@ export type IStreamEvent =
   ISpeedChangedEvent |
   IStalledEvent |
   IStreamLoadedEvent |
-  IStreamStartedEvent;
+  IStreamStartedEvent |
+  IStreamWarningEvent;
 
 export default STREAM_EVENTS;

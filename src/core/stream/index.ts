@@ -89,18 +89,17 @@ export interface IStreamOptions {
     maxBufferAhead$ : Observable<number>;
     maxBufferBehind$ : Observable<number>;
   };
-  errorStream : Subject<Error| CustomError>;
+  clock$ : Observable<IStreamClockTick>;
+  isDirectFile : boolean;
+  keySystems : IKeySystemOption[];
   speed$ : BehaviorSubject<number>;
   startAt? : IInitialTimeOptions;
+  supplementaryImageTracks : ISupplementaryImageTrack[];
+  supplementaryTextTracks : ISupplementaryTextTrack[];
   textTrackOptions : SourceBufferOptions;
+  transport : ITransportPipelines<any, any, any, any, any>;
   url : string;
   videoElement : HTMLMediaElement;
-  withMediaSource : boolean;
-  timings$ : Observable<IStreamClockTick>;
-  supplementaryTextTracks : ISupplementaryTextTrack[];
-  supplementaryImageTracks : ISupplementaryImageTrack[];
-  keySystems : IKeySystemOption[];
-  transport : ITransportPipelines<any, any, any, any, any>;
 }
 
 /**
@@ -122,19 +121,20 @@ export default function Stream({
   adaptiveOptions,
   autoPlay,
   bufferOptions,
+  clock$,
+  isDirectFile = false,
   keySystems,
   speed$,
   startAt,
-  url,
-  videoElement,
   supplementaryImageTracks, // eventual manually added images
   supplementaryTextTracks, // eventual manually added subtitles
-  errorStream, // subject through which minor errors are emitted TODO Remove?
   textTrackOptions,
-  timings$,
-  withMediaSource = true,
   transport,
+  url,
+  videoElement,
 } : IStreamOptions) : Observable<IStreamEvent> {
+
+  const warning$ = new Subject<Error|CustomError>();
 
   const {
     wantedBufferAhead$,
@@ -150,7 +150,7 @@ export default function Stream({
    */
   const fetchManifest = throttle(createManifestPipeline(
     transport,
-    errorStream,
+    warning$,
     supplementaryTextTracks,
     supplementaryImageTracks
   ));
@@ -164,7 +164,7 @@ export default function Stream({
     new WeakMapMemory((qSourceBuffer : QueuedSourceBuffer<any>) =>
       BufferGarbageCollector({
         queuedSourceBuffer: qSourceBuffer,
-        clock$: timings$.map(timing => timing.currentTime),
+        clock$: clock$.map(tick => tick.currentTime),
         maxBufferBehind$,
         maxBufferAhead$,
       })
@@ -205,17 +205,17 @@ export default function Stream({
 
     onRetry: (error : Error|CustomError, tryCount : number) => {
       log.warn("stream retry", error, tryCount);
-      errorStream.next(error);
+      warning$.next(error);
     },
   };
 
   /**
-   * End-Of-Play emit when the current timing is really close to the end.
+   * End-Of-Play emit when the current clock is really close to the end.
    * TODO Remove END_OF_PLAY
    * @see END_OF_PLAY
    * @type {Observable}
    */
-  const endOfPlay = timings$
+  const endOfPlay = clock$
     .filter(({ currentTime, duration }) =>
       duration > 0 && duration - currentTime < END_OF_PLAY
     );
@@ -237,13 +237,17 @@ export default function Stream({
   const startStreamWithRetry =
     retryableFuncWithBackoff<any, IStreamEvent>(startStream, streamRetryOptions);
 
-  // TODO Find what to do with no media source.
-  if (!withMediaSource) {
+  // TODO Find what to do with the direct file API
+  if (isDirectFile) {
     return Observable.throw(new MediaError("UNAVAILABLE_MEDIA_SOURCE", null, true));
   }
 
-  return createMediaSource(videoElement)
-    .mergeMap(startStreamWithRetry)
+  const stream$ = createMediaSource(videoElement)
+    .mergeMap(startStreamWithRetry);
+
+  const warningEvents$ = warning$.map(EVENTS.warning);
+
+  return Observable.merge(stream$, warningEvents$)
     .takeUntil(endOfPlay);
 
   /**
@@ -285,9 +289,9 @@ export default function Stream({
     } = handleInitialVideoEvents(videoElement, initialTime, autoPlay);
 
     const {
-      clock$,
+      clock$: bufferClock$,
       seekings$,
-    } = createBufferClock(manifest, timings$, hasDoneInitialSeek$, initialTime);
+    } = createBufferClock(manifest, clock$, hasDoneInitialSeek$, initialTime);
 
     /**
      * Subject through which network metrics will be sent by the segment
@@ -308,7 +312,7 @@ export default function Stream({
      * @type {SegmentPipelinesManager}
      */
     const segmentPipelinesManager = new SegmentPipelinesManager(
-      transport, requestsInfos$, network$, errorStream);
+      transport, requestsInfos$, network$, warning$);
 
     /**
      * Create ABR Manager, which will choose the right "Representation" for a
@@ -323,7 +327,7 @@ export default function Stream({
      * @type {BufferManager}
      */
     const bufferManager = new BufferManager(
-      abrManager, timings$, speed$, seekings$, wantedBufferAhead$);
+      abrManager, clock$, speed$, seekings$, wantedBufferAhead$);
 
     /**
      * Creates SourceBufferManager allowing to create and keep track of a single
@@ -338,14 +342,14 @@ export default function Stream({
      */
     const handledBuffers$ = handleBuffers(
       { manifest, period: firstPeriodToPlay }, // content
-      clock$,
+      bufferClock$,
       bufferManager,
       sourceBufferManager,
       segmentPipelinesManager,
       segmentBookkeepers,
       garbageCollectors,
       { text: textTrackOptions }, // sourceBufferOptions
-      errorStream
+      warning$
     );
 
     /**
@@ -362,7 +366,7 @@ export default function Stream({
      * issue.
      * @type {Observable}
      */
-    const emeManager$ = EMEManager(videoElement, keySystems, errorStream);
+    const emeManager$ = EMEManager(videoElement, keySystems, warning$);
 
     /**
      * Translate errors coming from the video element into RxPlayer errors
@@ -377,8 +381,8 @@ export default function Stream({
      * is stalled.
      * @type {Observable}
      */
-    const speedManager$ = SpeedManager(videoElement, speed$, timings$, {
-      pauseWhenStalled: withMediaSource,
+    const speedManager$ = SpeedManager(videoElement, speed$, clock$, {
+      pauseWhenStalled: !isDirectFile,
     }).map(EVENTS.speedChanged);
 
     /**
@@ -386,7 +390,7 @@ export default function Stream({
      * various infinite stalling issues
      * @type {Observable}
      */
-    const stallingManager$ = StallingManager(videoElement, manifest, timings$)
+    const stallingManager$ = StallingManager(videoElement, manifest, clock$)
       .map(EVENTS.stalled);
 
     // Single lifecycle events

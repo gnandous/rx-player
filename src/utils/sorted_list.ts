@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
+import arrayFind = require("array-find");
 import arrayIncludes from "./array-includes";
 
 /**
- * Creates an Array always sorted with the sorting function given to the
- * constructor.
+ * Creates an Array automatically sorted with the sorting function given to the
+ * constructor when the add method is called.
  *
  * @example
  * ```js
@@ -75,6 +76,19 @@ export default class SortedList<T> {
    */
   unwrap() : T[] {
     return this._array;
+  }
+
+  /**
+   * Find the first element corresponding to the given predicate.
+   *
+   * /!\ The returned element shares the same reference with what is used
+   * internally, any mutation on your part can lead to an un-sorted SortedList.
+   * You can still re-force the sorting to happen by calling forceSort.
+   * @param {Function} fn
+   * @returns {*}
+   */
+  find(fn : (element : T) => boolean) : T | undefined {
+    return arrayFind(this._array, fn);
   }
 
   /**

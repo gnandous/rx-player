@@ -21,13 +21,21 @@ import Representation, {
   IRepresentationArguments
 } from "./representation";
 
-// XXX TODO
-import {
-  IParsedContentProtection,
-} from "../net/dash/manifest/node_parsers/ContentProtection";
-import { IContentProtectionSmooth } from "../net/smooth/types";
-
 export type AdaptationType = "video"|"audio"|"text"|"image";
+
+// TODO
+export interface IContentProtectionDASH {
+  schemeIdUri?: string;
+  value?: string;
+}
+interface IKeySystem {
+  systemId : string;
+  privateData : Uint8Array;
+}
+export interface IContentProtectionSmooth {
+  keyId : string;
+  keySystems: IKeySystem[];
+}
 
 export interface IAdaptationArguments {
   // -- required
@@ -37,7 +45,7 @@ export interface IAdaptationArguments {
   // -- optional
   audioDescription? : boolean;
   closedCaption? : boolean;
-  contentProtection? : IParsedContentProtection;
+  contentProtection? : IContentProtectionDASH;
   id? : number|string;
   language? : string;
   manuallyAdded? : boolean;
@@ -57,7 +65,7 @@ class Adaptation {
 
   // optional
   public _smoothProtection? : IContentProtectionSmooth;
-  public contentProtection? : IParsedContentProtection;
+  public contentProtection? : IContentProtectionDASH;
   public isAudioDescription? : boolean;
   public isClosedCaption? : boolean;
   public language? : string;

@@ -38,18 +38,6 @@ export type SourceBufferOptions =
 
 type INativeSourceBufferType = "audio" | "video";
 
-/**
- * Returns true if the given buffeType is a native buffer, false otherwise.
- * "Native" source buffers are directly added to the MediaSource.
- * @param {string} bufferType
- * @returns {Boolean}
- */
-function shouldHaveNativeSourceBuffer(
-  bufferType : string
-) : bufferType is INativeSourceBufferType {
-  return bufferType === "audio" || bufferType === "video";
-}
-
 interface ICreatedSourceBuffer<T> {
   codec : string;
   sourceBuffer : QueuedSourceBuffer<T>;
@@ -252,6 +240,18 @@ export default class SourceBufferManager {
     this.dispose("text");
     this.dispose("image");
   }
+}
+
+/**
+ * Returns true if the given buffeType is a native buffer, false otherwise.
+ * "Native" source buffers are directly added to the MediaSource.
+ * @param {string} bufferType
+ * @returns {Boolean}
+ */
+function shouldHaveNativeSourceBuffer(
+  bufferType : string
+) : bufferType is INativeSourceBufferType {
+  return bufferType === "audio" || bufferType === "video";
 }
 
 export {

@@ -33,20 +33,20 @@ import Pipeline, {
  *
  * @example
  * ```js
- * const manifestPipeline = createManifestPipeline(transport, errorStream);
+ * const manifestPipeline = createManifestPipeline(transport, warning$);
  * manifestPipeline(manifestURL)
  *  .subscribe(manifest => console.log("Manifest:", manifest));
  * ```
  *
  * @param {Object} transport
- * @param {Subject} errorStream
+ * @param {Subject} warning$
  * @param {Array.<Object>} [supplementaryTextTracks=[]]
  * @param {Array.<Object>} [supplementaryImageTrack=[]]
  * @returns {Function}
  */
 export default function createManifestPipeline(
   transport : ITransportPipelines<any, any, any, any, any>,
-  errorStream : Subject<Error | CustomError>,
+  warning$ : Subject<Error | CustomError>,
   supplementaryTextTracks : ISupplementaryTextTrack[] = [],
   supplementaryImageTracks : ISupplementaryImageTrack[] = []
 ) : (url : string) => Observable<Manifest> {
@@ -56,7 +56,7 @@ export default function createManifestPipeline(
     return manifest$
       .do(({ type, value }) => {
         if (type === "error") {
-          errorStream.next(value);
+          warning$.next(value);
         }
       })
       .share()

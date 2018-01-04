@@ -27,13 +27,13 @@ import { QueuedSourceBuffer } from "../source_buffers";
  * @param {Object} opt
  * @returns {Observable}
  */
-export default function BufferGarbageCollector({
+export default function BufferGarbageCollector<T>({
   queuedSourceBuffer,
   clock$,
   maxBufferBehind$,
   maxBufferAhead$,
 } : {
-  queuedSourceBuffer : QueuedSourceBuffer<any>;
+  queuedSourceBuffer : QueuedSourceBuffer<T>;
   clock$ : Observable<number>;
   maxBufferBehind$ : Observable<number>;
   maxBufferAhead$ : Observable<number>;
@@ -65,8 +65,8 @@ export default function BufferGarbageCollector({
  * @param {Number} maxBufferAhead
  * @returns {Observable}
  */
-function clearBuffer(
-  qSourceBuffer : QueuedSourceBuffer<any>, // The type of buffer has no importance here
+function clearBuffer<T>(
+  qSourceBuffer : QueuedSourceBuffer<T>,
   position : number,
   maxBufferBehind : number,
   maxBufferAhead : number

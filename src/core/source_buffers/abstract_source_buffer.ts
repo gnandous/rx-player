@@ -84,9 +84,9 @@ export default abstract class AbstractSourceBuffer<T>
     this._abort();
   }
 
-  abstract _append(_data : T) : void;
-  abstract _remove(_from : number, _to : number) : void;
-  abstract _abort() : void;
+  protected abstract _append(_data : T) : void;
+  protected abstract _remove(_from : number, _to : number) : void;
+  protected abstract _abort() : void;
 
   /**
    * Active a lock, execute the given function, unlock when finished (on
@@ -95,7 +95,7 @@ export default abstract class AbstractSourceBuffer<T>
    * Also triggers the right events on start, error and end
    * @param {Function} func
    */
-  _lock(func : () => void) : void {
+  private _lock(func : () => void) : void {
     assert(!this.updating, "updating");
     this.updating = true;
     this.trigger("updatestart");
@@ -111,7 +111,7 @@ export default abstract class AbstractSourceBuffer<T>
    * @param {string} eventName
    * @param {*} value - value sent with the given event.
    */
-  _unlock(eventName : string, value? : any) : void {
+  private _unlock(eventName : string, value? : any) : void {
     this.updating = false;
     this.trigger(eventName, value);
     this.trigger("updateend");
