@@ -50,6 +50,12 @@ export function parseFromMetaDocument(
       return parseMPD(root, document.url, contentProtectionParser);
     });
 
+    parsedManifests.forEach((mpd) => {
+      if(mpd.type !== "static"){
+        throw new Error("DASH Manifest from metadash manifest is not static.");
+      }
+    });
+
     // 1 - Get period durations
     const parsedPeriods = parsedManifests
       .map((mpd: IParsedMPD) => mpd.periods)
@@ -139,7 +145,7 @@ export function parseFromMetaDocument(
       profiles: "urn:mpeg:dash:profile:isoff-live:2011",
       periods: newPeriods,
       suggestedPresentationDelay: spd,
-      minimumUpdatePeriod: averageDuration / 2,
+      minimumUpdatePeriod: averageDuration / 4,
       transportType: "metadash",
       type: "dynamic",
       uris: [baseURL || ""],
