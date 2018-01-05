@@ -54,15 +54,20 @@ export default class SortedList<T> {
   }
 
   /**
-   * Returns the nth element.
+   * Returns the nth element. Throws if the index does not exist.
    *
    * /!\ The returned Element shares the same reference with what is used
    * internally, any mutation on your part can lead to an un-sorted SortedList.
    * You can still re-force the sorting to happen by calling forceSort.
+   * @throws Error - Throws if the given index is negative or superior to the
+   * array's length.
    * @param {number} index
    * @returns {*}
    */
   get(index : number) : T {
+    if (index < 0 || index >= this._array.length) {
+      throw new Error("Invalid index.");
+    }
     return this._array[index];
   }
 
@@ -89,6 +94,16 @@ export default class SortedList<T> {
    */
   find(fn : (element : T) => boolean) : T | undefined {
     return arrayFind(this._array, fn);
+  }
+
+  /**
+   * Returns the index of the given element in the list.
+   * -1 if not found.
+   * @param {*} element
+   * @returns {number}
+   */
+  indexOf(element : T) : number {
+    return this._array.indexOf(element);
   }
 
   /**
@@ -141,13 +156,14 @@ export default class SortedList<T> {
 
   /**
    * Remove the first occurence of the given element.
-   * Returns the element removed or undefined if no element were removed.
-   * @returns {*}
+   * Returns the index of the removed element. Undefined if not found.
+   * @returns {number|undefined}
    */
-  removeFirst(element : T) : T|undefined {
+  removeFirst(element : T) : number|undefined {
     const indexOf = this._array.indexOf(element);
     if (indexOf >= 0) {
-      return this._array.splice(indexOf, 1)[0];
+      this._array.splice(indexOf, 1);
+      return indexOf;
     }
   }
 
@@ -191,6 +207,32 @@ export default class SortedList<T> {
    */
   pop() : T|undefined {
     return this._array.pop();
+  }
+
+  /**
+   * Returns true if the given element is before the whole list when sorted.
+   * As in, it would be the first element is pushed to the sortedList.
+   * @param {*} element
+   * @returns {boolean}
+   */
+  isBefore(element : T) : boolean {
+    if (!this._array.length) {
+      return true;
+    }
+    return this._sortingFn(element, this._array[0]) < 0;
+  }
+
+  /**
+   * Returns true if the given element is after the whole list when sorted.
+   * As in, it would be the last element is pushed to the sortedList.
+   * @param {*} element
+   * @returns {boolean}
+   */
+  isAfter(element : T) : boolean {
+    if (!this._array.length) {
+      return true;
+    }
+    return this._sortingFn(element, this._array[this._array.length - 1]) >= 0;
   }
 
   /**

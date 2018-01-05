@@ -49,6 +49,7 @@ import "rxjs/add/operator/scan";
 import "rxjs/add/operator/share";
 import "rxjs/add/operator/skip";
 import "rxjs/add/operator/skipUntil";
+import "rxjs/add/operator/skipWhile";
 import "rxjs/add/operator/startWith";
 import "rxjs/add/operator/switchMap";
 import "rxjs/add/operator/switchMapTo";

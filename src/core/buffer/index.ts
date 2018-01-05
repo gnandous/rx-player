@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { BehaviorSubject } from "rxjs/BehaviorSubject";
 import { Observable } from "rxjs/Observable";
 import { ErrorTypes } from "../../errors";
 import Manifest, {
@@ -95,7 +94,7 @@ export type IAdaptationBufferEvent =
 export default class AdaptationBufferManager {
   private _abrManager : ABRManager;
   private _abrBaseClock$ : Observable<IAdaptationBufferClockTick>;
-  private _speed$ : BehaviorSubject<number>;
+  private _speed$ : Observable<number>;
   private _seeking$ : Observable<null>;
   private _wantedBufferAhead$ : Observable<number>;
 
@@ -111,7 +110,7 @@ export default class AdaptationBufferManager {
   constructor(
     abrManager : ABRManager,
     abrBaseClock$ : Observable<IAdaptationBufferClockTick>,
-    speed$ : BehaviorSubject<number>,
+    speed$ : Observable<number>,
     seeking$ : Observable<null>,
     wantedBufferAhead$ : Observable<number>
   ) {
@@ -263,7 +262,10 @@ export default class AdaptationBufferManager {
      */
     let currentRepresentation : Representation|null = null;
 
-    const abrClock$ = this._abrBaseClock$.map(timing => {
+    const abrClock$ = Observable.combineLatest(
+      this._abrBaseClock$,
+      this._speed$
+    ) .map(([timing, speed]) => {
       let bitrate;
       let lastIndexPosition;
 
@@ -283,7 +285,7 @@ export default class AdaptationBufferManager {
         bitrate,
         isLive: manifest.isLive,
         lastIndexPosition,
-        speed: this._speed$.getValue(),
+        speed,
       };
     });
 

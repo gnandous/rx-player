@@ -449,6 +449,15 @@ export default class LanguageManager {
   }
 }
 
+/**
+ * Returns true if the given audio adaptation is an optimal choice for a period
+ * given the list of audio adaptations in the period and an array of preferred
+ * audio configurations sorted from the most preferred to the least preferred.
+ * @param {Adaptation|null} adaptation
+ * @param {Array.<Adaptation>} audioAdaptations
+ * @param {Array.<Object>} preferredAudioTracks
+ * @returns {Boolean}
+ */
 function isAudioAdaptationOptimal(
   adaptation : Adaptation|null,
   audioAdaptations : Adaptation[],
@@ -485,6 +494,14 @@ function isAudioAdaptationOptimal(
   return true; // no optimal adaptation, just return true
 }
 
+/**
+ * Find an optimal audio adaptation given their list and the array of preferred
+ * audio tracks sorted from the most preferred to the least preferred.
+ *
+ * null if the most optimal audio adaptation is no audio adaptation.
+ * @param {Array.<Adaptation>} audioAdaptations
+ * @returns {Adaptation|null}
+ */
 function findFirstOptimalAudioAdaptation(
   audioAdaptations : Adaptation[],
   preferredAudioTracks : IAudioTrackPreference[]
@@ -515,6 +532,15 @@ function findFirstOptimalAudioAdaptation(
   return audioAdaptations[0];
 }
 
+/**
+ * Returns true if the given text adaptation is an optimal choice for a period
+ * given the list of text adaptations in the period and an array of preferred
+ * text configurations sorted from the most preferred to the least preferred.
+ * @param {Adaptation|null} adaptation
+ * @param {Array.<Adaptation>} audioAdaptations
+ * @param {Array.<Object>} preferredAudioTracks
+ * @returns {Boolean}
+ */
 function isTextAdaptationOptimal(
   adaptation : Adaptation|null,
   textAdaptations : Adaptation[],
@@ -551,6 +577,14 @@ function isTextAdaptationOptimal(
   return adaptation === null;
 }
 
+/**
+ * Find an optimal text adaptation given their list and the array of preferred
+ * text tracks sorted from the most preferred to the least preferred.
+ *
+ * null if the most optimal text adaptation is no text adaptation.
+ * @param {Array.<Adaptation>} audioAdaptations
+ * @returns {Adaptation|null}
+ */
 function findFirstOptimalTextAdaptation(
   textAdaptations : Adaptation[],
   preferredTextTracks : ITextTrackPreference[]

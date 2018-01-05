@@ -85,8 +85,8 @@ export interface IPeriodChangeEvent {
   };
 }
 
-export interface IPreparePeriodEvent {
-  type : "periodReady";
+export interface IPeriodBufferReadyEvent {
+  type : "periodBufferReady";
   value : {
     type : SupportedBufferTypes;
     period : Period;
@@ -94,8 +94,8 @@ export interface IPreparePeriodEvent {
   };
 }
 
-export interface IFinishedPeriodEvent {
-  type : "finishedPeriod";
+export interface IPeriodBufferClearedEvent {
+  type : "periodBufferCleared";
   value : {
     type : SupportedBufferTypes;
     period : Period;
@@ -181,13 +181,13 @@ const STREAM_EVENTS = {
     };
   },
 
-  periodReady(
+  periodBufferReady(
     type : SupportedBufferTypes,
     period : Period,
     adaptation$ : Subject<Adaptation|null>
-  ) : IPreparePeriodEvent {
+  ) : IPeriodBufferReadyEvent {
     return {
-      type: "periodReady",
+      type: "periodBufferReady",
       value: {
         type,
         period,
@@ -196,12 +196,12 @@ const STREAM_EVENTS = {
     };
   },
 
-  finishedPeriod(
+  periodBufferCleared(
     type : SupportedBufferTypes,
     period : Period
-  ) : IFinishedPeriodEvent {
+  ) : IPeriodBufferClearedEvent {
     return {
-      type: "finishedPeriod",
+      type: "periodBufferCleared",
       value: {
         type,
         period,
@@ -221,10 +221,10 @@ const STREAM_EVENTS = {
 export type IStreamEvent =
   IAdaptationBufferEvent |
   IAdaptationChangeEvent |
-  IFinishedPeriodEvent |
+  IPeriodBufferClearedEvent |
   IManifestUpdateEvent |
   IPeriodChangeEvent |
-  IPreparePeriodEvent |
+  IPeriodBufferReadyEvent |
   ISessionEvent |
   ISpeedChangedEvent |
   IStalledEvent |

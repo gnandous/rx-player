@@ -40,7 +40,7 @@ export interface ICustomSourceBuffer<T> {
  * @extends EventEmitter
  */
 export default abstract class AbstractSourceBuffer<T>
-  extends EventEmitter
+  extends EventEmitter<any>
   implements ICustomSourceBuffer<T>
 {
   public updating : boolean;
@@ -98,7 +98,7 @@ export default abstract class AbstractSourceBuffer<T>
   private _lock(func : () => void) : void {
     assert(!this.updating, "updating");
     this.updating = true;
-    this.trigger("updatestart");
+    this.trigger("updatestart", undefined);
     const result : Observable<void> = tryCatch(() => castToObservable(func()));
     result.subscribe(
       ()  => setTimeout(() => { this._unlock("update"); }, 0),
@@ -114,6 +114,6 @@ export default abstract class AbstractSourceBuffer<T>
   private _unlock(eventName : string, value? : any) : void {
     this.updating = false;
     this.trigger(eventName, value);
-    this.trigger("updateend");
+    this.trigger("updateend", undefined);
   }
 }

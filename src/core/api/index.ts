@@ -36,7 +36,6 @@ import {
   getPlayedSizeOfRange,
   getSizeOfRange,
 } from "../../utils/ranges";
-import SortedList from "../../utils/sorted_list";
 
 import {
   exitFullscreen,
@@ -77,6 +76,7 @@ import Stream, {
   IStreamEvent,
 } from "../stream";
 import { SupportedBufferTypes } from "../types";
+import ActivePeriodsStore from "./active_periods_store";
 import createClock, {
   IClockTick
 } from "./clock";
@@ -113,7 +113,7 @@ interface IPositionUpdateItem {
  * @class Player
  * @extends EventEmitter
  */
-class Player extends EventEmitter {
+class Player extends EventEmitter<any> {
   /**
    * Current version of the RxPlayer.
    * @type {string}
@@ -244,14 +244,11 @@ class Player extends EventEmitter {
    *   - Any subsequent one are pre-loaded periods, consecutive to the one
    *     before in chronological order.
    *
-   * null if no period is active
+   * null if no content is active
    * @private
    * @type {SortedList}
    */
-  private _priv_activePeriods : SortedList<{
-    period: Period;
-    buffers: Set<SupportedBufferTypes>;
-  }> | null;
+  private _priv_activePeriods : ActivePeriodsStore|null;
 
   /**
    * Store currently considered adaptations, per active period.
@@ -587,7 +584,10 @@ class Player extends EventEmitter {
     const transportObj = transportFn(transportOptions);
 
     // now that every check has passed, stop previous content
+    // TODO First stop?
     this.stop();
+
+    this._priv_activePeriods = new ActivePeriodsStore();
 
     // prepare initial tracks played
     this._priv_initialAudioTrack = defaultAudioTrack;
@@ -732,6 +732,11 @@ class Player extends EventEmitter {
       }
     });
 
+    this._priv_activePeriods.firstPeriod$
+      .skipWhile(val => val === null) // skip initial "null" value
+      .takeUntil(this._priv_stopCurrentContent$)
+      .subscribe((period) => this._priv_onCurrentPeriodChange(period));
+
     videoPlays$
       .takeUntil(this._priv_stopCurrentContent$)
       .subscribe(x => this._priv_onPlayPauseNext(x), noop);
@@ -778,25 +783,14 @@ class Player extends EventEmitter {
   }
 
   /**
-   * Returns the current Period.
-   * @returns {Object|null}
-   */
-  getCurrentPeriod() : Period|null {
-    if (!this._priv_activePeriods) {
-      return null;
-    }
-    const periodItem = this._priv_activePeriods.head() || null;
-    return periodItem && periodItem.period;
-  }
-
-  /**
    * Returns adaptations (tracks) for every currently playing type
    * (audio/video/text...).
    * @returns {Object|null}
    */
   getCurrentAdaptations(
   ) : Partial<Record<SupportedBufferTypes, Adaptation|null>> | null {
-    const currentPeriod = this.getCurrentPeriod();
+    const currentPeriod = this._priv_activePeriods &&
+      this._priv_activePeriods.getFirst();
     if (!currentPeriod || !this._priv_activeAdaptations){
       return null;
     }
@@ -810,7 +804,8 @@ class Player extends EventEmitter {
    */
   getCurrentRepresentations(
   ) : Partial<Record<SupportedBufferTypes, Representation|null>> | null {
-    const currentPeriod = this.getCurrentPeriod();
+    const currentPeriod = this._priv_activePeriods &&
+      this._priv_activePeriods.getFirst();
     if (!currentPeriod || !this._priv_activeRepresentations){
       return null;
     }
@@ -1003,7 +998,8 @@ class Player extends EventEmitter {
    * @returns {Array.<Number>}
    */
   getAvailableVideoBitrates() : number[] {
-    const currentPeriod = this.getCurrentPeriod();
+    const currentPeriod = this._priv_activePeriods &&
+      this._priv_activePeriods.getFirst();
     if (!currentPeriod || !this._priv_activeAdaptations){
       return [];
     }
@@ -1021,7 +1017,8 @@ class Player extends EventEmitter {
    * @returns {Array.<Number>}
    */
   getAvailableAudioBitrates() : number[] {
-    const currentPeriod = this.getCurrentPeriod();
+    const currentPeriod = this._priv_activePeriods &&
+      this._priv_activePeriods.getFirst();
     if (!currentPeriod || !this._priv_activeAdaptations){
       return [];
     }
@@ -1477,8 +1474,7 @@ class Player extends EventEmitter {
     if (!this._priv_activePeriods) {
       return [];
     }
-    return this._priv_activePeriods.unwrap()
-      .map(activePeriodItem => activePeriodItem.period);
+    return this._priv_activePeriods.getList();
   }
 
   /**
@@ -1565,11 +1561,11 @@ class Player extends EventEmitter {
    */
   private _priv_onStreamNext(streamInfos : IStreamEvent) : void {
     switch (streamInfos.type) {
-      case "periodReady":
-        this._priv_onPeriodReady(streamInfos.value);
+      case "periodBufferReady":
+        this._priv_onPeriodBufferReady(streamInfos.value);
         break;
-      case "finishedPeriod":
-        this._priv_onFinishedPeriod(streamInfos.value);
+      case "periodBufferCleared":
+        this._priv_onPeriodBufferCleared(streamInfos.value);
         break;
       case "representationChange":
         this._priv_onRepresentationChange(streamInfos.value);
@@ -1668,60 +1664,6 @@ class Player extends EventEmitter {
     this.trigger("manifestChange", manifest);
   }
 
-  private _priv_addActivePeriod(period : Period, type : SupportedBufferTypes) : void {
-    // lazily create this._priv_activePeriods
-    if (!this._priv_activePeriods) {
-      this._priv_activePeriods = new SortedList((a, b) =>
-        a.period.start - b.period.start);
-    }
-
-    // add or update the periodItem
-    const periodItem = this._priv_activePeriods.find(p => p.period === period);
-    if (!periodItem) {
-      // Keep track of the previous active period, to see if it changes
-      const previousCurrentPeriod = this.getCurrentPeriod();
-
-      const newPeriodItem = {
-        period,
-        buffers: new Set<SupportedBufferTypes>(),
-      };
-      newPeriodItem.buffers.add(type);
-      this._priv_activePeriods.add(newPeriodItem);
-
-      // emit "periodChange" if the added period is the current one
-      const currentPeriod = this.getCurrentPeriod();
-      if (currentPeriod !== previousCurrentPeriod) {
-        this._priv_recordState("period", currentPeriod);
-      }
-    } else {
-      periodItem.buffers.add(type);
-    }
-  }
-
-  private _priv_removeActivePeriod(period : Period, type : SupportedBufferTypes) : void {
-    const previousCurrentPeriod = this.getCurrentPeriod();
-
-    if (!this._priv_activePeriods || this._priv_activePeriods.length() === 0) {
-      log.error("API: finishedPeriod event received while no period is active.");
-    } else {
-      const periodItem = this._priv_activePeriods.find(p => p.period === period);
-      if (!periodItem) {
-        log.error("API: finishedPeriod event received for an unknown period.");
-      } else {
-        periodItem.buffers.delete(type);
-        if (!periodItem.buffers.size) {
-          this._priv_activePeriods.removeFirst(periodItem);
-
-          // emit "periodChange" if the removed period was the current one
-          const currentPeriod = this.getCurrentPeriod();
-          if (currentPeriod !== previousCurrentPeriod) {
-            this._priv_recordState("period", currentPeriod);
-          }
-        }
-      }
-    }
-  }
-
   /**
    * Triggered each times the Stream "prepares" a new Period, and
    * needs the API to sent it its chosen adaptation.
@@ -1731,14 +1673,12 @@ class Player extends EventEmitter {
    * @param {Object} value.adaptations
    * XXX TODO Simplify that mess
    */
-  private _priv_onPeriodReady(value : {
+  private _priv_onPeriodBufferReady(value : {
     type : SupportedBufferTypes;
     period : Period;
     adaptation$ : Subject<Adaptation|null>;
   }) : void {
     const { type, period, adaptation$ } = value;
-
-    this._priv_addActivePeriod(period, type);
 
     if ((type === "audio" || type === "text")) {
       if (!this._priv_languageManager) {
@@ -1746,25 +1686,6 @@ class Player extends EventEmitter {
         adaptation$.next(null);
       } else {
         this._priv_languageManager.addPeriod(type, period, adaptation$);
-
-        if (this._priv_isCurrentPeriod(period)) {
-          if (type === "audio") {
-            const audioTrack = this._priv_languageManager.getChosenAudioTrack();
-            this._priv_recordState("audioTrack", audioTrack);
-          } else if (type === "text") {
-            const textTrack = this._priv_languageManager.getChosenTextTrack();
-            this._priv_recordState("textTrack", textTrack);
-          }
-        }
-      }
-
-      if (this._priv_isCurrentPeriod(period) && type === "audio") {
-        const activeRepresentations = this.getCurrentRepresentations();
-
-        if (activeRepresentations && activeRepresentations.audio != null) {
-          const bitrate = activeRepresentations.audio.bitrate;
-          this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
-        }
       }
     } else {
       const adaptations = period.adaptations[type];
@@ -1773,28 +1694,29 @@ class Player extends EventEmitter {
       } else {
         adaptation$.next(null);
       }
+    }
 
-      if (this._priv_isCurrentPeriod(period) && type === "video") {
-        const activeRepresentations = this.getCurrentRepresentations();
-
-        if (activeRepresentations && activeRepresentations.video != null) {
-          const bitrate = activeRepresentations.video.bitrate;
-          this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
-        }
-      }
+    if (!this._priv_activePeriods) {
+      log.error("API: non ActivePeriodsStore instanciated");
+    } else {
+      this._priv_activePeriods.add(period, type);
     }
   }
 
   /**
    * Triggered each times the Stream "removes" a Period.
    */
-  private _priv_onFinishedPeriod(value : {
+  private _priv_onPeriodBufferCleared(value : {
     type : SupportedBufferTypes;
     period : Period;
   }) : void {
     const { type, period } = value;
 
-    this._priv_removeActivePeriod(period, type);
+    if (!this._priv_activePeriods) {
+      log.error("API: non ActivePeriodsStore instanciated");
+    } else {
+      this._priv_activePeriods.remove(period, type);
+    }
 
     if (type === "audio" || type === "text") {
       if (this._priv_languageManager) {
@@ -1844,11 +1766,11 @@ class Player extends EventEmitter {
       activeAdaptations[type] = adaptation;
     }
 
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_activePeriods) {
       return;
     }
 
-    if (this._priv_isCurrentPeriod(period)) {
+    if (period && this._priv_activePeriods.getFirst() === period) {
       if (type === "audio") {
         const audioTrack = this._priv_languageManager.getChosenAudioTrack();
         this._priv_recordState("audioTrack", audioTrack);
@@ -1891,7 +1813,10 @@ class Player extends EventEmitter {
       this._priv_lastBitrates[type] = bitrate;
     }
 
-    if (this._priv_isCurrentPeriod(period)) {
+    if (
+      period && this._priv_activePeriods &&
+      this._priv_activePeriods.getFirst() === period
+    ) {
       if (type === "video") {
         this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
       } else if (type === "audio") {
@@ -1945,46 +1870,86 @@ class Player extends EventEmitter {
    * Called each time the player state updates.
    * @param {string} s
    */
-  private _priv_setPlayerState(s : string) : void {
-    if (this.state !== s) {
-      this.state = s;
-      log.info("playerStateChange", s);
-      this.trigger("playerStateChange", s);
+  private _priv_setPlayerState(newState : string) : void {
+    if (this.state !== newState) {
+      this.state = newState;
+      log.info("playerStateChange", newState);
+      this.trigger("playerStateChange", newState);
     }
   }
 
   /**
-   * Called each time a new timing object is emitted.
-   * @param {Object} timing
+   * Called each time a new clock tick object is emitted.
+   * @param {Object} clockTick
    */
-  private _priv_triggerTimeChange(timing : IClockTick) : void {
-    if (!this._priv_currentManifest || !timing) {
+  private _priv_triggerTimeChange(clockTick : IClockTick) : void {
+    if (!this._priv_currentManifest || !clockTick) {
       return;
     }
 
     const positionData : IPositionUpdateItem = {
-      position: timing.currentTime,
-      duration: timing.duration,
-      playbackRate: timing.playbackRate,
+      position: clockTick.currentTime,
+      duration: clockTick.duration,
+      playbackRate: clockTick.playbackRate,
 
       // TODO fix higher up?
-      bufferGap: isFinite(timing.bufferGap) ? timing.bufferGap : 0,
+      bufferGap: isFinite(clockTick.bufferGap) ? clockTick.bufferGap : 0,
     };
 
-    if (this._priv_currentManifest.isLive && timing.currentTime > 0) {
+    if (this._priv_currentManifest.isLive && clockTick.currentTime > 0) {
       positionData.wallClockTime =
-        toWallClockTime(timing.currentTime, this._priv_currentManifest)
+        toWallClockTime(clockTick.currentTime, this._priv_currentManifest)
           .getTime() / 1000;
       positionData.liveGap =
-        getMaximumBufferPosition(this._priv_currentManifest) - timing.currentTime;
+        getMaximumBufferPosition(this._priv_currentManifest) - clockTick.currentTime;
     }
 
     this.trigger("positionUpdate", positionData);
   }
 
-  private _priv_isCurrentPeriod(period : Period) : boolean {
-    const activePeriod = this.getCurrentPeriod();
-    return activePeriod != null && activePeriod === period;
+  private _priv_onCurrentPeriodChange(period : Period|null) : void {
+    this._priv_recordState("period", period);
+
+    if (period == null || !this._priv_activePeriods) {
+      return;
+    }
+
+    const bufferTypes = this._priv_activePeriods.getBufferTypes(period);
+    if (!bufferTypes || !bufferTypes.size) {
+      return;
+    }
+
+    if (this._priv_languageManager) {
+
+      if (bufferTypes.has("audio")) {
+        const audioTrack = this._priv_languageManager.getChosenAudioTrack();
+        this._priv_recordState("audioTrack", audioTrack);
+      }
+
+      if (bufferTypes.has("text")) {
+        const textTrack = this._priv_languageManager.getChosenTextTrack();
+        this._priv_recordState("textTrack", textTrack);
+      }
+
+    }
+
+    if (bufferTypes.has("audio")) {
+      const activeRepresentations = this.getCurrentRepresentations();
+      if (activeRepresentations && activeRepresentations.audio != null) {
+        const bitrate = activeRepresentations.audio.bitrate;
+        this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
+      }
+    }
+
+    if (bufferTypes.has("video")) {
+      const activeRepresentations = this.getCurrentRepresentations();
+
+      if (activeRepresentations && activeRepresentations.video != null) {
+        const bitrate = activeRepresentations.video.bitrate;
+        this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
+      }
+    }
+
   }
 }
 

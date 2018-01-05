@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { BehaviorSubject } from "rxjs/BehaviorSubject";
 import { Observable } from "rxjs/Observable";
 import { Subject } from "rxjs/Subject";
 import config from "../../config";
@@ -92,7 +91,7 @@ export interface IStreamOptions {
   clock$ : Observable<IStreamClockTick>;
   isDirectFile : boolean;
   keySystems : IKeySystemOption[];
-  speed$ : BehaviorSubject<number>;
+  speed$ : Observable<number>;
   startAt? : IInitialTimeOptions;
   supplementaryImageTracks : ISupplementaryImageTrack[];
   supplementaryTextTracks : ISupplementaryTextTrack[];
@@ -134,13 +133,17 @@ export default function Stream({
   videoElement,
 } : IStreamOptions) : Observable<IStreamEvent> {
 
-  const warning$ = new Subject<Error|CustomError>();
-
   const {
     wantedBufferAhead$,
     maxBufferAhead$,
     maxBufferBehind$,
   } = bufferOptions;
+
+  /**
+   * Observable through which all warning events will be sent.
+   * @type {Subject}
+   */
+  const warning$ = new Subject<Error|CustomError>();
 
   /**
    * Fetch and parse the manifest from the URL given.
@@ -181,37 +184,8 @@ export default function Stream({
     );
 
   /**
-   * @see retryWithBackoff
-   */
-  const streamRetryOptions = {
-    totalRetry: 3,
-    retryDelay: 250,
-    resetDelay: 60 * 1000,
-
-    shouldRetry: (error : Error) => {
-      if (isKnownError(error)) {
-        return !error.fatal;
-      }
-      return true;
-    },
-
-    errorSelector: (error : Error|CustomError) => {
-      if (!isKnownError(error)) {
-        return new OtherError("NONE", error, true);
-      }
-      error.fatal = true;
-      return error;
-    },
-
-    onRetry: (error : Error|CustomError, tryCount : number) => {
-      log.warn("stream retry", error, tryCount);
-      warning$.next(error);
-    },
-  };
-
-  /**
    * End-Of-Play emit when the current clock is really close to the end.
-   * TODO Remove END_OF_PLAY
+   * TODO Remove END_OF_PLAY constant
    * @see END_OF_PLAY
    * @type {Observable}
    */
@@ -219,6 +193,47 @@ export default function Stream({
     .filter(({ currentTime, duration }) =>
       duration > 0 && duration - currentTime < END_OF_PLAY
     );
+
+  /**
+   * Retry the stream if ended for an unknown or non-fatal error.
+   * TODO working? remove?
+   * @see retryWithBackoff
+   */
+  const streamRetryOptions = {
+    totalRetry: 3,
+    retryDelay: 250,
+    resetDelay: 60 * 1000,
+
+    /**
+     * Only retry if the error is unknown or non-fatal
+     * @param {Error|CustomError}
+     * @returns {Boolean}
+     */
+    shouldRetry: (error : Error|CustomError) : boolean => {
+      if (isKnownError(error)) {
+        return !error.fatal;
+      }
+      return true;
+    },
+
+    /**
+     * Called when the stream truly throws
+     * @param {Error|CustomError}
+     * @returns {CustomError}
+     */
+    errorSelector: (error : Error|CustomError) : CustomError => {
+      if (!isKnownError(error)) {
+        return new OtherError("NONE", error, true);
+      }
+      error.fatal = true;
+      return error;
+    },
+
+    onRetry: (error : Error|CustomError, tryCount : number) : void => {
+      log.warn("stream retry", error, tryCount);
+      warning$.next(error);
+    },
+  };
 
   /**
    * On subscription:
@@ -382,7 +397,7 @@ export default function Stream({
      * @type {Observable}
      */
     const speedManager$ = SpeedManager(videoElement, speed$, clock$, {
-      pauseWhenStalled: !isDirectFile,
+      pauseWhenStalled: true,
     }).map(EVENTS.speedChanged);
 
     /**
