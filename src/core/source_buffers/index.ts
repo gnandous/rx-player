@@ -16,7 +16,6 @@
 
 import MediaError from "../../errors/MediaError";
 import log from "../../utils/log";
-import { SupportedBufferTypes } from "../types";
 import { ICustomSourceBuffer } from "./abstract_source_buffer";
 import ImageSourceBuffer from "./image";
 import QueuedSourceBuffer from "./queued_source_buffer";
@@ -25,6 +24,9 @@ import {
   NativeTextSourceBuffer,
 } from "./text";
 import ICustomTimeRanges from "./time_ranges";
+
+export const BUFFER_TYPES = ["audio", "video", "text", "image"];
+export type SupportedBufferTypes = "audio"|"video"|"text"|"image";
 
 export type SourceBufferOptions =
   {
@@ -114,13 +116,42 @@ export default class SourceBufferManager {
   }
 
   /**
+   * Returns true if a SourceBuffer with the type given has been created with
+   * this instance of the SourceBufferManager.
+   * @param {string} bufferType
+   * @returns {Boolean}
+   */
+  public has(bufferType : SupportedBufferTypes) : boolean {
+    if (shouldHaveNativeSourceBuffer(bufferType)) {
+      return !!this._initializedNativeSourceBuffers[bufferType];
+    }
+    return !!this._initializedCustomSourceBuffers[bufferType];
+  }
+
+  public get(bufferType : SupportedBufferTypes) : QueuedSourceBuffer<any> {
+    if (shouldHaveNativeSourceBuffer(bufferType)) {
+      const sourceBufferInfos = this._initializedNativeSourceBuffers[bufferType];
+      if (!sourceBufferInfos) {
+        throw new Error(`SourceBufferManager: no ${bufferType} initialized yet`);
+      }
+      return sourceBufferInfos.sourceBuffer;
+    } else {
+      const sourceBufferInfos = this._initializedCustomSourceBuffers[bufferType];
+      if (!sourceBufferInfos) {
+        throw new Error(`SourceBufferManager: no ${bufferType} initialized yet`);
+      }
+      return sourceBufferInfos.sourceBuffer;
+    }
+  }
+
+  /**
    * Creates a new QueuedSourceBuffer for the given buffer type.
    * @param {string} bufferType
    * @param {string} codec
    * @param {Object} [options={}]
    * @returns {QueuedSourceBuffer}
    */
-  createSourceBuffer(
+  public createSourceBuffer(
     bufferType : SupportedBufferTypes,
     codec : string,
     options : SourceBufferOptions = {}
@@ -164,8 +195,8 @@ export default class SourceBufferManager {
       log.info("creating a new text SourceBuffer with codec", codec);
 
       const sourceBuffer = options.textTrackMode === "html" ?
-        new HTMLTextSourceBuffer(codec, this._videoElement, options.textTrackElement) :
-        new NativeTextSourceBuffer(codec, this._videoElement, options.hideNativeSubtitle);
+        new HTMLTextSourceBuffer(this._videoElement, options.textTrackElement) :
+        new NativeTextSourceBuffer(this._videoElement, options.hideNativeSubtitle);
       const queuedSourceBuffer = new QueuedSourceBuffer(sourceBuffer);
 
       this._initializedCustomSourceBuffers.text = {
@@ -175,7 +206,7 @@ export default class SourceBufferManager {
       return queuedSourceBuffer;
     } else if (bufferType === "image") {
       log.info("creating a new image SourceBuffer with codec", codec);
-      const sourceBuffer = new ImageSourceBuffer(codec);
+      const sourceBuffer = new ImageSourceBuffer();
       const queuedSourceBuffer = new QueuedSourceBuffer(sourceBuffer);
       this._initializedCustomSourceBuffers.image = {
         codec,
@@ -192,7 +223,7 @@ export default class SourceBufferManager {
    * Dispose of the active SourceBuffer for the given type.
    * @param {string} bufferType
    */
-  dispose(bufferType : SupportedBufferTypes) : void {
+  public dispose(bufferType : SupportedBufferTypes) : void {
     if (shouldHaveNativeSourceBuffer(bufferType)) {
       const memorizedNativeSourceBuffer = this
         ._initializedNativeSourceBuffers[bufferType];
@@ -234,7 +265,7 @@ export default class SourceBufferManager {
    * Dispose of all QueuedSourceBuffer created on this SourceBufferManager.
    * TODO better code?
    */
-  disposeAll() {
+  public disposeAll() {
     this.dispose("audio");
     this.dispose("video");
     this.dispose("text");

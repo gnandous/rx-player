@@ -46,17 +46,15 @@ export default class NativeTextTrackSourceBuffer
   private _trackElement? : HTMLTrackElement;
 
   /**
-   * @param {string} codec
    * @param {HTMLMediaElement} videoElement
    * @param {Boolean} hideNativeSubtitle
    */
   constructor(
-    codec : string,
     videoElement : HTMLMediaElement,
     hideNativeSubtitle : boolean
   ) {
     log.debug("creating native text track source buffer");
-    super(codec);
+    super();
     const {
       track,
       trackElement,

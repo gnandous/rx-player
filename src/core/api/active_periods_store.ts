@@ -16,35 +16,61 @@
 
 /**
  * This file helps to keep track of the currently active Periods.
+ * That is, Periods for which at least a single Buffer is currently active.
  *
- * That is, Periods for which a Buffer is currently active.
+ * It also keep track of the currently active period:
+ * The first chronological period for which all types of buffers are active.
  */
+
+// TODO
+// This turns out to be a mess
+// The Stream should probably emit a "currentPeriodChanged" event instead.
 
 import { BehaviorSubject } from "rxjs/BehaviorSubject";
 import { Period } from "../../manifest";
 import log from "../../utils/log";
 import SortedList from "../../utils/sorted_list";
-import { SupportedBufferTypes } from "../types";
+import {
+  BUFFER_TYPES,
+  SupportedBufferTypes,
+} from "../source_buffers";
+
+/**
+ * Returns true if the set of given buffer types is complete (has all possible
+ * types).
+ * @param {Set} bufferList
+ * @returns {Boolean}
+ */
+function isBufferListFull(bufferList : Set<SupportedBufferTypes>) : boolean {
+  return bufferList.size >= BUFFER_TYPES.length;
+}
+
+/**
+ * @param {SortedList}
+ * @returns {Boolean}
+ */
+function isFirstInSortedList<T>(list : SortedList<T>, item : T) : boolean {
+  return list.indexOf(item) === 0;
+}
 
 /**
  * Store active Periods as they are added/removed associated with their linked
  * active buffer types.
  *
- * Emit the first chronological Period each time it changes.
+ * Emit the currently active Period each time it changes.
  *
- * Periods here are assumed to respect the following rules:
+ * Periods added and removed here are assumed to respect the following rules:
  *   - The first chronological Period stored is the currently played one.
+ *   - Every possible buffer types are added / removed.
  *   - Any subsequent ones are pre-loaded Periods, consecutive chronologically.
  *
  * @class ActivePeriodsStore
  */
 export default class ActivePeriodsStore {
   /**
-   * Emit the first chronological Period each times it changes.
-   * null when there is none.
    * @type {BehaviorSubject}
    */
-  public firstPeriod$ : BehaviorSubject<Period|null>;
+  public activePeriod$ : BehaviorSubject<Period|null>;
 
   /**
    * Store every active Periods and their linked buffer types, in chronological
@@ -59,14 +85,18 @@ export default class ActivePeriodsStore {
 
   constructor() {
     this._periodsList = new SortedList((a, b) => a.period.start - b.period.start);
-    this.firstPeriod$ = new BehaviorSubject<Period|null>(null);
+    this.activePeriod$ = new BehaviorSubject<Period|null>(null);
   }
 
   /**
    * @returns {Period|null}
    */
-  getFirst() : Period | null {
-    return this.firstPeriod$.getValue();
+  getCurrentPeriod() : Period | null {
+    return this.activePeriod$.getValue();
+  }
+
+  isCurrentPeriod(period : Period) : boolean {
+    return period === this.activePeriod$.getValue();
   }
 
   /**
@@ -76,24 +106,27 @@ export default class ActivePeriodsStore {
    */
   add(period : Period, type : SupportedBufferTypes) {
     // add or update the periodItem
-    const periodItem = this._periodsList.find(p => p.period === period);
-    if (periodItem) {
-      // Period already added, just add the buffer type to it.
-      periodItem.buffers.add(type);
+    let periodItem = this._periodsList.find(p => p.period === period);
+    if (!periodItem) {
+      periodItem = {
+        period,
+        buffers: new Set<SupportedBufferTypes>(),
+      };
+      this._periodsList.add(periodItem);
+    }
+    if (periodItem.buffers.has(type)) {
+      log.warn(`Buffer type ${type} already added to the period`);
       return;
     }
+    periodItem.buffers.add(type); // on another line for TS
 
-    const newPeriodItem = {
-      period,
-      buffers: new Set<SupportedBufferTypes>(),
-    };
-    newPeriodItem.buffers.add(type); // on another line for TS
-
-    const isFirst = this._periodsList.isBefore(newPeriodItem);
-    this._periodsList.add(newPeriodItem);
-
-    if (isFirst) {
-      this.firstPeriod$.next(period);
+    // When the first chronological Period has all buffer types
+    // added, we can start to emit the currently active period
+    if (
+      isFirstInSortedList(this._periodsList, periodItem) &&
+      isBufferListFull(periodItem.buffers)
+    ) {
+      this.activePeriod$.next(period);
     }
   }
 
@@ -115,24 +148,19 @@ export default class ActivePeriodsStore {
     }
 
     periodItem.buffers.delete(type);
+
     if (!periodItem.buffers.size) {
       const indexOf = this._periodsList.removeFirst(periodItem);
+
       if (indexOf === 0) {
-        const newFirstPeriod = this._periodsList.head();
-        this.firstPeriod$.next(newFirstPeriod ? newFirstPeriod.period : null);
+        const newActivePeriod = this._periodsList.head();
+
+        // only emit the new active period if all buffers have been added yet
+        if (newActivePeriod && isBufferListFull(newActivePeriod.buffers)) {
+          this.activePeriod$.next(newActivePeriod.period);
+        }
       }
     }
-  }
-
-  /**
-   * Returns every active buffer types, as a set, for the given Period.
-   * null if the Period is not found.
-   * @param {Period} period
-   * @returns {Set|null}
-   */
-  getBufferTypes(period : Period) : Set<SupportedBufferTypes>|null {
-    const periodItem = this._periodsList.find((p => p.period === period));
-    return (periodItem && periodItem.buffers) || null;
   }
 
   /**

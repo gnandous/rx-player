@@ -26,7 +26,7 @@ import {
   IRepresentationChangeEvent,
 } from "../buffer";
 import { ISessionEvent } from "../eme/session";
-import { SupportedBufferTypes } from "../types";
+import { SupportedBufferTypes } from "../source_buffers";
 import { IStallingItem } from "./stalling_manager";
 
 export interface IAdaptationChangeEvent {

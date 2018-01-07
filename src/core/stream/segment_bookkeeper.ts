@@ -89,7 +89,7 @@ export default class SegmentBookkeeper {
    *
    * TODO implement management of segments whose end is not known
    */
-  synchronizeBuffered(buffered : TimeRanges) : void {
+  public synchronizeBuffered(buffered : TimeRanges) : void {
     const { inventory } = this;
     const ranges = convertToRanges(buffered);
 
@@ -276,7 +276,7 @@ export default class SegmentBookkeeper {
    * be undefined in some rare cases
    * @param {Number} bitrate - bitrate of the representation the segment is in
    */
-  insert(
+  public insert(
     period : Period,
     adaptation : Adaptation,
     representation : Representation,
@@ -507,7 +507,7 @@ export default class SegmentBookkeeper {
    * @param {Number} timescale
    * @returns {Object|null}
    */
-  hasPlayableSegment(
+  public hasPlayableSegment(
     wantedRange : {
       start : number;
       end : number;
@@ -662,7 +662,7 @@ export default class SegmentBookkeeper {
   /**
    * Empty the current inventory
    */
-  reset() {
+  public reset() {
     this.inventory = [];
   }
 }

@@ -21,7 +21,7 @@ import { Subject } from "rxjs/Subject";
 import config from "../../config";
 import { Representation } from "../../manifest";
 import log from "../../utils/log";
-import { SupportedBufferTypes } from "../types";
+import { SupportedBufferTypes } from "../source_buffers";
 import BandwidthEstimator from "./bandwidth_estimator";
 import EWMA from "./ewma";
 import filterByBitrate from "./filterByBitrate";

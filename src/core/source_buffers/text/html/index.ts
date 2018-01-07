@@ -99,12 +99,11 @@ export default class HTMLTextTrackSourceBuffer
    * @param {HTMLTrackElement} textTrackElement
    */
   constructor(
-    codec : string,
     videoElement : HTMLMediaElement,
     textTrackElement : HTMLTrackElement
   ) {
     log.debug("creating html text track source buffer");
-    super(codec);
+    super();
     this._videoElement = videoElement;
     this._textTrackElement = textTrackElement;
     this._destroy$ = new Subject();

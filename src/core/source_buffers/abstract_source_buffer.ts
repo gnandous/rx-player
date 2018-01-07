@@ -47,11 +47,8 @@ export default abstract class AbstractSourceBuffer<T>
   public buffered : ManualTimeRanges;
   public readyState : string;
 
-  protected codec : string;
-
-  constructor(codec : string) {
+  constructor() {
     super();
-    this.codec = codec;
     this.updating = false;
     this.readyState = "opened";
     this.buffered = new ManualTimeRanges();

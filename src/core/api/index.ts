@@ -72,10 +72,10 @@ import {
   dispose as emeDispose,
   getCurrentKeySystem,
 } from "../eme";
+import { SupportedBufferTypes } from "../source_buffers";
 import Stream, {
   IStreamEvent,
 } from "../stream";
-import { SupportedBufferTypes } from "../types";
 import ActivePeriodsStore from "./active_periods_store";
 import createClock, {
   IClockTick
@@ -249,6 +249,8 @@ class Player extends EventEmitter<any> {
    * @type {SortedList}
    */
   private _priv_activePeriods : ActivePeriodsStore|null;
+
+  private _priv_currentPeriod : Period|null;
 
   /**
    * Store currently considered adaptations, per active period.
@@ -498,6 +500,7 @@ class Player extends EventEmitter<any> {
     this._priv_activeRepresentations = null;
     this._priv_activeAdaptations = null;
     this._priv_activePeriods = null;
+    this._priv_currentPeriod = null;
 
     this._priv_recordedEvents = {}; // event memory
 
@@ -732,7 +735,7 @@ class Player extends EventEmitter<any> {
       }
     });
 
-    this._priv_activePeriods.firstPeriod$
+    this._priv_activePeriods.activePeriod$
       .skipWhile(val => val === null) // skip initial "null" value
       .takeUntil(this._priv_stopCurrentContent$)
       .subscribe((period) => this._priv_onCurrentPeriodChange(period));
@@ -789,12 +792,10 @@ class Player extends EventEmitter<any> {
    */
   getCurrentAdaptations(
   ) : Partial<Record<SupportedBufferTypes, Adaptation|null>> | null {
-    const currentPeriod = this._priv_activePeriods &&
-      this._priv_activePeriods.getFirst();
-    if (!currentPeriod || !this._priv_activeAdaptations){
+    if (!this._priv_currentPeriod || !this._priv_activeAdaptations){
       return null;
     }
-    return this._priv_activeAdaptations.get(currentPeriod) || null;
+    return this._priv_activeAdaptations.get(this._priv_currentPeriod) || null;
   }
 
   /**
@@ -804,12 +805,10 @@ class Player extends EventEmitter<any> {
    */
   getCurrentRepresentations(
   ) : Partial<Record<SupportedBufferTypes, Representation|null>> | null {
-    const currentPeriod = this._priv_activePeriods &&
-      this._priv_activePeriods.getFirst();
-    if (!currentPeriod || !this._priv_activeRepresentations){
+    if (!this._priv_currentPeriod || !this._priv_activeRepresentations){
       return null;
     }
-    return this._priv_activeRepresentations.get(currentPeriod) || null;
+    return this._priv_activeRepresentations.get(this._priv_currentPeriod) || null;
   }
 
   /**
@@ -998,12 +997,10 @@ class Player extends EventEmitter<any> {
    * @returns {Array.<Number>}
    */
   getAvailableVideoBitrates() : number[] {
-    const currentPeriod = this._priv_activePeriods &&
-      this._priv_activePeriods.getFirst();
-    if (!currentPeriod || !this._priv_activeAdaptations){
+    if (!this._priv_currentPeriod || !this._priv_activeAdaptations){
       return [];
     }
-    const adaptations = this._priv_activeAdaptations.get(currentPeriod);
+    const adaptations = this._priv_activeAdaptations.get(this._priv_currentPeriod);
     const videoAdaptation = adaptations && adaptations.video;
     if (!videoAdaptation) {
       return [];
@@ -1017,12 +1014,10 @@ class Player extends EventEmitter<any> {
    * @returns {Array.<Number>}
    */
   getAvailableAudioBitrates() : number[] {
-    const currentPeriod = this._priv_activePeriods &&
-      this._priv_activePeriods.getFirst();
-    if (!currentPeriod || !this._priv_activeAdaptations){
+    if (!this._priv_currentPeriod || !this._priv_activeAdaptations){
       return [];
     }
-    const adaptations = this._priv_activeAdaptations.get(currentPeriod);
+    const adaptations = this._priv_activeAdaptations.get(this._priv_currentPeriod);
     const audioAdaptation = adaptations && adaptations.audio;
     if (!audioAdaptation) {
       return [];
@@ -1466,38 +1461,6 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Get all currently active Periods.
-   * ATM only used for debugging, not part of the API.
-   * @returns {Array.<Period>}
-   */
-  _priv_getActivePeriods() : Period[] {
-    if (!this._priv_activePeriods) {
-      return [];
-    }
-    return this._priv_activePeriods.getList();
-  }
-
-  /**
-   * Get all currently active Adaptations, per Period.
-   * ATM only used for debugging, not part of the API.
-   * @returns {Map|null}
-   */
-  _priv_getActiveAdaptations(
-  ) : Map<Period, Partial<Record<SupportedBufferTypes, Adaptation|null>>> | null {
-    return this._priv_activeAdaptations;
-  }
-
-  /**
-   * Get all currently active Representations, per Period.
-   * ATM only used for debugging, not part of the API.
-   * @returns {Map|null}
-   */
-  _priv_getActiveRepresentations(
-  ) : Map<Period, Partial<Record<SupportedBufferTypes, Representation|null>>> | null {
-    return this._priv_activeRepresentations;
-  }
-
-  /**
    * Reset all state properties relative to a playing content.
    */
   private _priv_cleanUpCurrentContentState() : void {
@@ -1766,11 +1729,10 @@ class Player extends EventEmitter<any> {
       activeAdaptations[type] = adaptation;
     }
 
-    if (!this._priv_languageManager || !this._priv_activePeriods) {
-      return;
-    }
-
-    if (period && this._priv_activePeriods.getFirst() === period) {
+    if (
+      this._priv_languageManager &&
+      period != null && period === this._priv_currentPeriod
+    ) {
       if (type === "audio") {
         const audioTrack = this._priv_languageManager.getChosenAudioTrack();
         this._priv_recordState("audioTrack", audioTrack);
@@ -1813,10 +1775,7 @@ class Player extends EventEmitter<any> {
       this._priv_lastBitrates[type] = bitrate;
     }
 
-    if (
-      period && this._priv_activePeriods &&
-      this._priv_activePeriods.getFirst() === period
-    ) {
+    if (period != null && this._priv_currentPeriod === period) {
       if (type === "video") {
         this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
       } else if (type === "audio") {
@@ -1908,46 +1867,32 @@ class Player extends EventEmitter<any> {
   }
 
   private _priv_onCurrentPeriodChange(period : Period|null) : void {
+    this._priv_currentPeriod = period;
     this._priv_recordState("period", period);
 
-    if (period == null || !this._priv_activePeriods) {
+    if (period == null) {
       return;
     }
 
-    const bufferTypes = this._priv_activePeriods.getBufferTypes(period);
-    if (!bufferTypes || !bufferTypes.size) {
-      return;
-    }
-
+    // Emit events
     if (this._priv_languageManager) {
+      const audioTrack = this._priv_languageManager.getChosenAudioTrack();
+      const textTrack = this._priv_languageManager.getChosenTextTrack();
 
-      if (bufferTypes.has("audio")) {
-        const audioTrack = this._priv_languageManager.getChosenAudioTrack();
-        this._priv_recordState("audioTrack", audioTrack);
-      }
-
-      if (bufferTypes.has("text")) {
-        const textTrack = this._priv_languageManager.getChosenTextTrack();
-        this._priv_recordState("textTrack", textTrack);
-      }
-
+      this._priv_recordState("audioTrack", audioTrack);
+      this._priv_recordState("textTrack", textTrack);
     }
 
-    if (bufferTypes.has("audio")) {
-      const activeRepresentations = this.getCurrentRepresentations();
-      if (activeRepresentations && activeRepresentations.audio != null) {
-        const bitrate = activeRepresentations.audio.bitrate;
-        this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
-      }
+    const activeAudioRepresentations = this.getCurrentRepresentations();
+    if (activeAudioRepresentations && activeAudioRepresentations.audio != null) {
+      const bitrate = activeAudioRepresentations.audio.bitrate;
+      this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
     }
 
-    if (bufferTypes.has("video")) {
-      const activeRepresentations = this.getCurrentRepresentations();
-
-      if (activeRepresentations && activeRepresentations.video != null) {
-        const bitrate = activeRepresentations.video.bitrate;
-        this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
-      }
+    const activeVideoRepresentations = this.getCurrentRepresentations();
+    if (activeVideoRepresentations && activeVideoRepresentations.video != null) {
+      const bitrate = activeVideoRepresentations.video.bitrate;
+      this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
     }
 
   }

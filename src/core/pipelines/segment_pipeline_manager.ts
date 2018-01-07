@@ -23,7 +23,7 @@ import {
   IABRMetric,
   IABRRequest
 } from "../abr";
-import { SupportedBufferTypes } from "../types";
+import { SupportedBufferTypes } from "../source_buffers";
 import Pipeline, {
   IPipelineOptions,
 } from "./pipeline";

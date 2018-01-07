@@ -31,9 +31,11 @@ import Manifest, {
 import { ISegmentLoaderArguments } from "../../net/types";
 import { SimpleSet } from "../../utils/collections";
 import log from "../../utils/log";
-import { QueuedSourceBuffer } from "../source_buffers";
+import {
+  QueuedSourceBuffer,
+  SupportedBufferTypes ,
+} from "../source_buffers";
 import { SegmentBookkeeper } from "../stream";
-import { SupportedBufferTypes } from "../types";
 import forceGarbageCollection from "./force_garbage_collection";
 import getWantedRange from "./get_wanted_range";
 

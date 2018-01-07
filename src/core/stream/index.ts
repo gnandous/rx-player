@@ -49,8 +49,9 @@ import {
 import SourceBufferManager, {
   QueuedSourceBuffer,
   SourceBufferOptions,
+  SupportedBufferTypes ,
 } from "../source_buffers";
-import { SupportedBufferTypes } from "../types";
+import BuffersHandler from "./buffers_handler";
 import createBufferClock, {
   IStreamClockTick,
 } from "./clock";
@@ -61,7 +62,6 @@ import BufferGarbageCollector from "./garbage_collector";
 import getInitialTime, {
   IInitialTimeOptions,
 } from "./get_initial_time";
-import handleBuffers from "./handle_buffers";
 import liveEventsHandler from "./live_events_handler";
 import createMediaErrorHandler from "./media_error_handler";
 import SegmentBookkeeper from "./segment_bookkeeper";
@@ -355,7 +355,7 @@ export default function Stream({
      * Creates Observable which will manage every Buffer for the given Content.
      * @type {Observable}
      */
-    const handledBuffers$ = handleBuffers(
+    const handledBuffers$ = BuffersHandler(
       { manifest, period: firstPeriodToPlay }, // content
       bufferClock$,
       bufferManager,

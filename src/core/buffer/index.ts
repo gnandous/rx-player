@@ -24,9 +24,11 @@ import Manifest, {
 import { ISegmentLoaderArguments } from "../../net/types";
 import log from "../../utils/log";
 import ABRManager from "../abr";
-import { QueuedSourceBuffer } from "../source_buffers";
+import {
+  QueuedSourceBuffer,
+  SupportedBufferTypes,
+} from "../source_buffers";
 import { SegmentBookkeeper } from "../stream";
-import { SupportedBufferTypes } from "../types";
 import RepresentationBuffer, {
   IAddedSegmentEvent,
   IBufferActiveEvent,
@@ -61,8 +63,8 @@ export interface IRepresentationChangeEvent {
 }
 
 export type IAdaptationBufferEvent =
-  IBitrateEstimationChangeEvent |
   IRepresentationBufferEvent |
+  IBitrateEstimationChangeEvent |
   IRepresentationChangeEvent;
 
 /**
@@ -124,9 +126,10 @@ export default class AdaptationBufferManager {
   /**
    * Create new Buffer Observable linked to the given Adaptation.
    *
-   * Multiple buffers can be created at the same time on the same
-   * QueuedSourceBuffer.
-   * This allows for example smooth streaming between multiple periods.
+   * This Buffer will download and push segments from a single Adaptation,
+   * linked to a single Period.
+   * It will emit various events to report its status to the caller.
+   *
    * @param {Observable} bufferClock$
    * @param {QueuedSourceBuffer} queuedSourceBuffer
    * @param {SegmentBookkeeper} segmentBookkeeper
@@ -134,7 +137,7 @@ export default class AdaptationBufferManager {
    * @param {Object} content
    * @returns {Observable}
    */
-  createBuffer(
+  public createBuffer(
     bufferClock$ : Observable<IBufferClockTick>,
     queuedSourceBuffer : QueuedSourceBuffer<any>,
     segmentBookkeeper : SegmentBookkeeper,
@@ -246,6 +249,37 @@ export default class AdaptationBufferManager {
           .mergeMap(() => createRepresentationBuffer(representation));
       });
     }
+  }
+
+  /**
+   * Create empty Buffer Observable, linked to a Period.
+   *
+   * This observable will never download any segment and just emit a "full"
+   * event when reaching the end.
+   * @param {Object} content
+   * @returns {Observable}
+   */
+  public createEmptyBuffer(
+    bufferClock$ : Observable<IBufferClockTick>,
+    content : { manifest : Manifest; period : Period }
+  ) : Observable<IAdaptationBufferEvent> {
+    const period = content.period;
+    return Observable.combineLatest(bufferClock$, this._wantedBufferAhead$)
+      .filter(([clockTick, wantedBufferAhead]) =>
+        period.end != null && clockTick.currentTime + wantedBufferAhead >= period.end
+      )
+      .mergeMap(([clockTick, wantedBufferAhead]) => {
+        const periodEnd = period.end || Infinity;
+        return Observable.of({
+          type: "full" as "full",
+          value: {
+            wantedRange: {
+              start: Math.min(clockTick.currentTime, periodEnd),
+              end: Math.min(clockTick.currentTime + wantedBufferAhead, periodEnd),
+            },
+          },
+        });
+      });
   }
 
   private _getABRForAdaptation(

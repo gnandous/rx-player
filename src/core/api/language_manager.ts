@@ -265,7 +265,8 @@ export default class LanguageManager {
   }
 
   /**
-   * Returns an object describing the chosen audio track for the first period.
+   * Returns an object describing the chosen audio track for the first audio
+   * Period.
    * This object has the following keys:
    *   - language {string}
    *   - normalized {string}
@@ -278,10 +279,10 @@ export default class LanguageManager {
    * @returns {Object|null}
    */
   getChosenAudioTrack() : ILMAudioTrack|null {
-    const firstPeriod : undefined|ILMPeriodItem = this._periods.head();
-    const audioInfos = firstPeriod && firstPeriod.audio;
+    const firstAudioPeriod = this._periods.head();
+    const audioInfos = firstAudioPeriod && firstAudioPeriod.audio;
     if (audioInfos == null) {
-      throw new Error("LanguageManager: Period not found.");
+      return null;
     }
     const adaptation = audioInfos.currentChoice;
     if (!adaptation) {
@@ -296,7 +297,8 @@ export default class LanguageManager {
   }
 
   /**
-   * Returns an object describing the chosen text track for the first Period.
+   * Returns an object describing the chosen text track for the first text
+   * Period.
    * This object has the following keys:
    *   - language {string}
    *   - normalized {string}
@@ -309,10 +311,10 @@ export default class LanguageManager {
    * @returns {Object|null}
    */
   getChosenTextTrack() : ILMTextTrack|null {
-    const firstPeriod : undefined|ILMPeriodItem = this._periods.head();
-    const textInfos = firstPeriod && firstPeriod.text;
+    const firstTextPeriod = this._periods.head();
+    const textInfos = firstTextPeriod && firstTextPeriod.text;
     if (textInfos == null) {
-      throw new Error("LanguageManager: Period not found.");
+      return null;
     }
     const adaptation = textInfos.currentChoice;
     if (!adaptation) {
@@ -327,7 +329,7 @@ export default class LanguageManager {
   }
 
   /**
-   * Returns all available audio tracks for the first Period, as an array of
+   * Returns all available audio tracks for a given Period, as an array of
    * objects.
    * Those objects have the following keys:
    *   - language {string}
@@ -335,12 +337,11 @@ export default class LanguageManager {
    *   - audioDescription {Boolean}
    *   - id {number|string}
    *   - active {Boolean}
-   * @param {Period} period
    * @returns {Array.<Object>}
    */
   getAvailableAudioTracks() : ILMAudioTrackList {
-    const firstPeriod : undefined|ILMPeriodItem = this._periods.head();
-    const audioInfos = firstPeriod && firstPeriod.audio;
+    const firstAudioPeriod = this._periods.head();
+    const audioInfos = firstAudioPeriod && firstAudioPeriod.audio;
     if (audioInfos == null) {
       return [];
     }
@@ -366,12 +367,14 @@ export default class LanguageManager {
    *   - closedCaption {Boolean}
    *   - id {number|string}
    *   - active {Boolean}
+   * @throws Error - Throws if the given Period has not been added to the
+   * LanguageManager.
    * @param {Period} period
    * @returns {Array.<Object>}
    */
   getAvailableTextTracks() : ILMTextTrackList {
-    const firstPeriod : undefined|ILMPeriodItem = this._periods.head();
-    const textInfos = firstPeriod && firstPeriod.text;
+    const firstTextPeriod = this._periods.head();
+    const textInfos = firstTextPeriod && firstTextPeriod.text;
     if (textInfos == null) {
       return [];
     }

@@ -56,19 +56,22 @@ export function resetMediaSource(
 ) : void {
   if (mediaSource && mediaSource.readyState !== "closed") {
     const { readyState, sourceBuffers } = mediaSource;
-    for (let i = 0; i < sourceBuffers.length; i++) {
+    for (let i = sourceBuffers.length - 1; i >= 0; i--) {
       const sourceBuffer = sourceBuffers[i];
       try {
         if (readyState === "open") {
-          log.info("aborting previous source buffer", sourceBuffer);
+          log.info("removing SourceBuffer from mediaSource", sourceBuffer);
           sourceBuffer.abort();
         }
 
         mediaSource.removeSourceBuffer(sourceBuffer);
       }
       catch (e) {
-        log.warn("error while disposing souceBuffer", e);
+        log.warn("error while disposing SourceBuffer", e);
       }
+    }
+    if (sourceBuffers.length) {
+      log.warn("not all SourceBuffers could have been removed.");
     }
   }
 
