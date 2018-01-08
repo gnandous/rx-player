@@ -1,6 +1,57 @@
-# Period Buffers
+# BufferHandler
 
 ## Overview
+
+To be able to play a content, the player has to be able to download chunks of media data - called segments - and has to push them to SourceBuffers.
+
+In the RxPlayer, it is the role of the _Buffers_ to do all of those tasks.
+
+The BufferHandler is a part of the Stream which dynamically creates and remove _Buffers_.
+
+Basically, it:
+  - dynamically creates various SourceBuffers depending on the needs of the given content
+  - create and destroy _Buffers_ as the content plays
+
+## Multiple type handling
+
+More often than not, content are divised into multiple "types": "audio", "video" or "text" segments, for example. They are often completely distinct in a manifest and as such, have to be downloaded and decoded separately.
+
+For a separation between "audio" and "video" contents, we need to use two separate SourceBuffers. For other types, such as "text" and "image", we copy this behavior by creating  custom SourceBuffers adapted to these type of contents.
+
+We then create a different Buffer for each one of them. Each will progressively download and push content of their respective type to their respective SourceBuffer:
+```
+- AUDIO BUFFER _
+|======================    |
+
+- VIDEO BUFFER _
+|==================        |
+
+- TEXT BUFFER _
+|========================  |
+
+- IMAGE BUFFER _
+|====================      |
+```
+_(the ``|`` sign delimits the temporal start and end of a Buffer, the ``=`` sign represent a pushed segment in the corresponding SourceBuffer)_
+
+## Native SourceBuffers
+
+SourceBuffers created for the audio and/or video types are called _native SourceBuffers_. SourceBuffers for any other possible types (for example "text" and "image") are called "custom" SourceBuffers.
+
+Native SourceBuffers have several differences with custom ones, especially:
+  - They are managed by the browser where custom ones are implemented in JS. As such, they must obey to various browser rules, among which:
+      1. They cannot be lazily created as the content plays. We have to initialize all native SourceBuffers beforehand.
+      2. They have to be linked to a specific codec.
+      3. They have to be added to the MediaSource
+  - They are in a way more "important" than custom ones. If a problem happens with a native SourceBuffer, we interrupt playback. For a custom one, we can just deactivate the SourceBuffer for the content.
+  - They affect buffering when custom SourceBuffers do not (no text segment for a part of the content means we will just not have subtitles, no audio segment means we will completely stop to await them)
+  - They affect various API linked to the media element in the DOM. Such as ``HTMLMediaElement.prototype.buffered``. Custom SourceBuffers do not.
+
+Due to these differences, native SourceBuffers are often managed in a less permissive way than custom ones:
+  - They will be created at the very start of the content
+  - An error coming from one of them will lead us to completely stop the content on a fatal error
+
+## Period Buffers
 
 The DASH transport protocol has a concept called _Period_. Simply put, it allows to set various types of content successively in the same manifest.
 
@@ -48,7 +99,7 @@ To allow smooth transitions between them, we also might want to preload content 
         TV Show               Italian Film            American film
 ```
 
-## Implementation
+### Implementation
 
 The Stream entirely manages those _Period Buffers_.
 
@@ -204,7 +255,7 @@ At the end, we should only have _Period Buffer[s]_ for consecutive Period[s]:
   - The last chronological one is the only one downloading content.
   - In between, we only have full consecutive _Period Buffers_.
 
-## Communication with the API
+### Communication with the API
 
 The Stream communicates to the API about creations and destructions of _Period Buffers_ respectively through ``"periodBufferReady"`` and ``"periodBufferCleared"`` events.
 
