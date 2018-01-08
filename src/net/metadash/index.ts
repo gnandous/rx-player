@@ -67,18 +67,15 @@ interface IMetaManifestInfo {
       url: string;
     }>;
     startTime: number;
-    looped: number;
 }
 
 function loadMetaData(data: any): {
   urls: string[];
   startTime: number;
-  looped: number;
 } {
   return {
     urls: data.urls,
     startTime: data.startTime,
-    looped: data.looped,
   };
 }
 
@@ -127,7 +124,6 @@ export default function(
                 responseData: {
                   manifests,
                   startTime: metaData.startTime,
-                  looped: metaData.looped,
                 },
               },
             };

@@ -108,6 +108,7 @@ export default class QueuedSourceBuffer<T> {
 
   abort() {
     this.dispose();
+    // debugger;
     this._buffer.abort();
   }
 

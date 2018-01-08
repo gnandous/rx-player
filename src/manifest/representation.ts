@@ -87,7 +87,7 @@ class Representation {
     if (args.mimeType != null) {
       this.mimeType = args.mimeType;
     }
-
+    debugger;
     this.index = new RepresentationIndex({
       index: args.index,
       rootId: this.id,

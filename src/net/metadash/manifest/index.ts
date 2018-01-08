@@ -14,15 +14,12 @@
  * limitations under the License.
  */
 
+import generateNewId from "../../../utils/id";
 import parseMPD, {
     IContentProtectionParser,
     IParsedMPD,
 } from "../../dash/manifest/node_parsers";
-
 import { IParsedPeriod } from "../../dash/manifest/node_parsers/Period";
-
-import generateNewId from "../../../utils/id";
-
 import patchSegmentsIndex from "./index_patcher";
 
 import config from "../../../config";
@@ -36,7 +33,6 @@ export function parseFromMetaDocument(
         url: string;
       }>;
       startTime: number;
-      looped: number;
     },
     baseURL?: string,
     contentProtectionParser?: IContentProtectionParser
@@ -74,7 +70,7 @@ export function parseFromMetaDocument(
       .reduce((acc, val) =>
         Math.min(acc || 10, val || 10), 10
       )) || 10;
-      const tsbd = (parsedManifests.map(man => man.timeShiftBufferDepth)
+    const tsbd = (parsedManifests.map(man => man.timeShiftBufferDepth)
       .reduce((acc, val) =>
         Math.min(acc || 0, val || 0), 0
       )) || 0;
