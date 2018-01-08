@@ -36,6 +36,7 @@ interface ITimelineIndex {
   media : string;
   timeline : IIndexSegment[];
   startNumber? : number;
+  tokenOffset? : number;
 }
 
 /**

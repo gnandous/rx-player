@@ -104,7 +104,6 @@ export function parseFromMetaDocument(
       newPeriod.id = "p" + Math.round(newPeriod.start);
       newPeriods.push(newPeriod);
     }
-
     // In case where live edge is a little before first period position,
     // we duplicate last period at beginning
     const firstPeriodRef = newPeriods[newPeriods.length -1];

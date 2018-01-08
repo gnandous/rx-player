@@ -180,7 +180,7 @@ export default function(
             false,
             offset * segment.timescale
           ).filter();
-
+          debugger;
           let nextSegments : INextSegmentsInfos[]|undefined;
           let segmentInfos : ISegmentTimingInfos;
 

@@ -279,7 +279,6 @@ export default function RepresentationBuffer({
     // wanted buffer size, we can retrieve the list of segments to inject in
     // our pipelines.
     const mediaSegments = representation.index.getSegments(start, duration);
-
     if (initSegment) {
       mediaSegments.unshift(initSegment);
     }

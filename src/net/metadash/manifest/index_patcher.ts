@@ -19,18 +19,17 @@ import { IParsedPeriod } from "../../dash/manifest/node_parsers/Period";
 
 export default function patchSegmentsIndex(period: IParsedPeriod) {
     period.adaptations.forEach((adaptation: IParsedAdaptationSet) => {
-      const index = adaptation.representations[0].index;
-      if(index.timeline != null && period.start != null){
-        index.timeline.forEach((tl: any) => {
+      const reps = adaptation.representations;
+      reps.forEach((rep) => {
+        const index = rep.index;
+        if(index.tokenOffset == null){
           index.tokenOffset = period.start;
-            tl.ts += ((period.start || 0) * index.timescale);
-        });
-      }
-      else if(index.startNumber != null && period.start != null){
-        index.tokenOffset = period.start;
-      } else {
-        debugger;
-        throw new Error("Start time may be spcified on period.");
-      }
+          if(index.timeline != null && period.start != null){
+            index.timeline.forEach((tl: any) => {
+              tl.ts += ((period.start || 0) * index.timescale);
+          });
+          }
+        }
+      });
     });
 }
