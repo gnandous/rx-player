@@ -22,8 +22,6 @@
 import arrayFind = require("array-find");
 import { Subject } from "rxjs/Subject";
 import { Adaptation, Period } from "../../manifest";
-
-import arrayIncludes from "../../utils/array-includes";
 import log from "../../utils/log";
 import SortedList from "../../utils/sorted_list";
 
@@ -66,13 +64,11 @@ export interface ILMTextTrackListItem extends ILMTextTrack {
 interface ILMAudioInfos {
   adaptations : Adaptation[];
   adaptation$ : Subject<Adaptation|null> ;
-  currentChoice? : Adaptation|null;
 }
 
 interface ILMTextInfos {
   adaptations : Adaptation[];
   adaptation$ : Subject<Adaptation|null> ;
-  currentChoice? : Adaptation|null;
 }
 
 interface ILMPeriodItem {
@@ -95,6 +91,9 @@ export default class LanguageManager {
   private _preferredAudioTracks : IAudioTrackPreference[];
   private _preferredTextTracks : ITextTrackPreference[];
 
+  private _audioChoiceMemory : WeakMap<Period, Adaptation|null>;
+  private _textChoiceMemory : WeakMap<Period, Adaptation|null>;
+
   /**
    * @param {Object} defaults
    * @param {Array.<Object>} defaults.preferredAudioTracks
@@ -109,6 +108,9 @@ export default class LanguageManager {
       preferredTextTracks,
     } = defaults;
     this._periods = new SortedList((a, b) => a.period.start - b.period.start);
+
+    this._audioChoiceMemory = new WeakMap();
+    this._textChoiceMemory = new WeakMap();
 
     // TODO limit to PREFERENCES_MAX_LENGTH
     this._preferredAudioTracks = preferredAudioTracks || [];
@@ -193,15 +195,16 @@ export default class LanguageManager {
 
     const preferredAudioTracks = this._preferredAudioTracks;
     const audioAdaptations = periodItem.period.adaptations.audio || [];
+    const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
     if (
-      audioInfos.currentChoice === undefined ||
+      chosenAudioAdaptation === undefined ||
       !isAudioAdaptationOptimal(
-        audioInfos.currentChoice, audioAdaptations, preferredAudioTracks)
+        chosenAudioAdaptation, audioAdaptations, preferredAudioTracks)
     ) {
       const optimalAdaptation = findFirstOptimalAudioAdaptation(
         audioAdaptations, preferredAudioTracks);
 
-      audioInfos.currentChoice = optimalAdaptation;
+      this._audioChoiceMemory.set(period, optimalAdaptation);
       audioInfos.adaptation$.next(optimalAdaptation);
     }
   }
@@ -215,15 +218,16 @@ export default class LanguageManager {
 
     const preferredTextTracks = this._preferredTextTracks;
     const textAdaptations = periodItem.period.adaptations.text || [];
+    const chosenTextAdaptation = this._textChoiceMemory.get(period);
     if (
-      textInfos.currentChoice === undefined ||
+      chosenTextAdaptation === undefined ||
       !isTextAdaptationOptimal(
-        textInfos.currentChoice, textAdaptations, preferredTextTracks)
+        chosenTextAdaptation, textAdaptations, preferredTextTracks)
     ) {
       const optimalAdaptation = findFirstOptimalTextAdaptation(
         textAdaptations, preferredTextTracks);
 
-      textInfos.currentChoice = optimalAdaptation;
+      this._textChoiceMemory.set(period, optimalAdaptation);
       textInfos.adaptation$.next(optimalAdaptation);
     }
   }
@@ -248,8 +252,12 @@ export default class LanguageManager {
     if (foundAdaptation === undefined) {
       throw new Error("Audio Track not found.");
     }
-    if (audioInfos.currentChoice !== foundAdaptation) {
-      audioInfos.currentChoice = foundAdaptation;
+    const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
+    if (
+      chosenAudioAdaptation === undefined ||
+      chosenAudioAdaptation !== foundAdaptation
+    ) {
+      this._audioChoiceMemory.set(period, foundAdaptation);
       audioInfos.adaptation$.next(foundAdaptation);
     }
 
@@ -279,8 +287,12 @@ export default class LanguageManager {
     if (foundAdaptation === undefined) {
       throw new Error("Text Track not found.");
     }
-    if (textInfos.currentChoice !== foundAdaptation) {
-      textInfos.currentChoice = foundAdaptation;
+    const chosenTextAdaptation = this._textChoiceMemory.get(period);
+    if (
+      chosenTextAdaptation === undefined ||
+      chosenTextAdaptation !== foundAdaptation
+    ) {
+      this._textChoiceMemory.set(period, foundAdaptation);
       textInfos.adaptation$.next(foundAdaptation);
     }
 
@@ -301,8 +313,9 @@ export default class LanguageManager {
     if (!audioInfos) {
       throw new Error("LanguageManager: Given Period not found.");
     }
-    if (audioInfos.currentChoice !== null) {
-      audioInfos.currentChoice = null;
+    const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
+    if (chosenAudioAdaptation !== null) {
+      this._audioChoiceMemory.set(period, null);
       audioInfos.adaptation$.next(null);
     }
   }
@@ -317,8 +330,9 @@ export default class LanguageManager {
     if (!textInfos) {
       throw new Error("LanguageManager: Given Period not found.");
     }
-    if (textInfos.currentChoice !== null) {
-      textInfos.currentChoice = null;
+    const chosenTextAdaptation = this._textChoiceMemory.get(period);
+    if (chosenTextAdaptation !== null) {
+      this._textChoiceMemory.set(period, null);
       textInfos.adaptation$.next(null);
     }
   }
@@ -343,15 +357,15 @@ export default class LanguageManager {
     if (audioInfos == null) {
       return null;
     }
-    const adaptation = audioInfos.currentChoice;
-    if (!adaptation) {
+    const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
+    if (!chosenAudioAdaptation) {
       return null;
     }
     return {
-      language: adaptation.language || "",
-      normalized: adaptation.normalizedLanguage || "",
-      audioDescription: !!adaptation.isAudioDescription,
-      id: adaptation.id,
+      language: chosenAudioAdaptation.language || "",
+      normalized: chosenAudioAdaptation.normalizedLanguage || "",
+      audioDescription: !!chosenAudioAdaptation.isAudioDescription,
+      id: chosenAudioAdaptation.id,
     };
   }
 
@@ -375,15 +389,15 @@ export default class LanguageManager {
     if (textInfos == null) {
       return null;
     }
-    const adaptation = textInfos.currentChoice;
-    if (!adaptation) {
+    const chosenTextAdaptation = this._audioChoiceMemory.get(period);
+    if (!chosenTextAdaptation) {
       return null;
     }
     return {
-      language: adaptation.language || "",
-      normalized: adaptation.normalizedLanguage || "",
-      closedCaption: !!adaptation.isClosedCaption,
-      id: adaptation.id,
+      language: chosenTextAdaptation.language || "",
+      normalized: chosenTextAdaptation.normalizedLanguage || "",
+      closedCaption: !!chosenTextAdaptation.isClosedCaption,
+      id: chosenTextAdaptation.id,
     };
   }
 
@@ -405,8 +419,8 @@ export default class LanguageManager {
       return [];
     }
 
-    const currentTrack = audioInfos.currentChoice;
-    const currentId = currentTrack && currentTrack.id;
+    const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
+    const currentId = chosenAudioAdaptation && chosenAudioAdaptation.id;
     return audioInfos.adaptations
       .map((adaptation) => ({
         language: adaptation.language || "",
@@ -438,8 +452,8 @@ export default class LanguageManager {
       return [];
     }
 
-    const currentTrack = textInfos.currentChoice;
-    const currentId = currentTrack && currentTrack.id;
+    const chosenTextAdaptation = this._textChoiceMemory.get(period);
+    const currentId = chosenTextAdaptation && chosenTextAdaptation.id;
     return textInfos.adaptations
       .map((adaptation) => ({
         language: adaptation.language || "",
@@ -450,27 +464,34 @@ export default class LanguageManager {
       }));
   }
 
+  // private _setAudioAdaptation(
+  //   periodItem : ILMPeriodItem,
+  //   adaptation : Adaptation|null
+  // ) {
+  //   if (periodItem.audio) {
+  //     this._audioChoiceMemory.set(periodItem.period, adaptation);
+  //     periodItem.audio.adaptation$.next(adaptation);
+  //   }
+  // }
+
   private _updateAudioTracks() {
     const preferredAudioTracks = this._preferredAudioTracks;
-    const updatedPeriods : Period[] = [];
 
     for (let i = 0; i < this._periods.length(); i++) {
       const periodItem = this._periods.get(i);
-      if (!arrayIncludes(updatedPeriods, periodItem.period)) {
+      if (periodItem.audio != null) {
         const audioAdaptations = periodItem.period.adaptations.audio || [];
+        const chosenAudioAdaptation = this._audioChoiceMemory.get(periodItem.period);
         if (
-          periodItem.audio != null && (
-            periodItem.audio.currentChoice === undefined ||
-            !isAudioAdaptationOptimal(
-              periodItem.audio.currentChoice, audioAdaptations, preferredAudioTracks)
-          )
+          chosenAudioAdaptation === undefined ||
+          !isAudioAdaptationOptimal(
+            chosenAudioAdaptation, audioAdaptations, preferredAudioTracks)
         ) {
           const optimalAdaptation = findFirstOptimalAudioAdaptation(
             audioAdaptations, preferredAudioTracks);
 
-          periodItem.audio.currentChoice = optimalAdaptation;
+          this._audioChoiceMemory.set(periodItem.period, optimalAdaptation);
           periodItem.audio.adaptation$.next(optimalAdaptation);
-          updatedPeriods.push(periodItem.period);
 
           // The array of active periods could have completely changed since
           // then, restart the loop
@@ -482,25 +503,22 @@ export default class LanguageManager {
 
   private _updateTextTracks() {
     const preferredTextTracks = this._preferredTextTracks;
-    const updatedPeriods : Period[] = [];
 
     for (let i = 0; i < this._periods.length(); i++) {
       const periodItem = this._periods.get(i);
-      if (!arrayIncludes(updatedPeriods, periodItem.period)) {
+      if (periodItem.text != null) {
         const textAdaptations = periodItem.period.adaptations.text || [];
+        const chosenTextAdaptation = this._textChoiceMemory.get(periodItem.period);
         if (
-          periodItem.text != null && (
-            periodItem.text.currentChoice === undefined ||
-            !isTextAdaptationOptimal(
-              periodItem.text.currentChoice, textAdaptations, preferredTextTracks)
-          )
+          chosenTextAdaptation === undefined ||
+          !isTextAdaptationOptimal(
+            chosenTextAdaptation, textAdaptations, preferredTextTracks)
         ) {
           const optimalAdaptation = findFirstOptimalTextAdaptation(
             textAdaptations, preferredTextTracks);
 
-          periodItem.text.currentChoice = optimalAdaptation;
+          this._textChoiceMemory.set(periodItem.period, optimalAdaptation);
           periodItem.text.adaptation$.next(optimalAdaptation);
-          updatedPeriods.push(periodItem.period);
 
           // The array of active periods could have completely changed since
           // then, restart the loop
