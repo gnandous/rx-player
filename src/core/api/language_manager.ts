@@ -81,8 +81,6 @@ interface ILMPeriodItem {
   text? : ILMTextInfos;
 }
 
-const PREFERENCES_MAX_LENGTH = 10;
-
 /**
  * Manage audio and text tracks for all active periods.
  *
@@ -117,6 +115,12 @@ export default class LanguageManager {
     this._preferredTextTracks = preferredTextTracks || [];
   }
 
+  /**
+   * Add Subject for new "audio" or "text" PeriodBuffer.
+   * @param {string} bufferType
+   * @param {Period} period
+   * @param {Subject} adaptations
+   */
   addPeriod(
     bufferType : "audio" | "text",
     period : Period,
@@ -132,67 +136,110 @@ export default class LanguageManager {
           adaptations: period.adaptations[bufferType] || [],
           adaptation$,
         };
-        if (bufferType === "audio") {
-          this._updateAudioTracks();
-        } else if (bufferType === "text") {
-          this._updateTextTracks();
-        }
-        return;
       }
-    }
-
-    this._periods.add({
-      period,
-      [bufferType]: {
-        adaptations: period.adaptations[bufferType] || [],
-        adaptation$,
-      },
-    });
-    if (bufferType === "audio") {
-      this._updateAudioTracks();
-    } else if (bufferType === "text") {
-      this._updateTextTracks();
+    } else {
+      this._periods.add({
+        period,
+        [bufferType]: {
+          adaptations: period.adaptations[bufferType] || [],
+          adaptation$,
+        },
+      });
     }
   }
 
+  /**
+   * Remove Subject for previously-added "audio" or "text" PeriodBuffer.
+   * @param {string} bufferType
+   * @param {Period} period
+   */
   removePeriod(
     bufferType : "audio" | "text",
     period : Period
   ) : void {
     const periodIndex = findPeriodIndex(this._periods, period);
-    if (periodIndex != null) {
-      const periodItem = this._periods.get(periodIndex);
-      if (periodItem[bufferType] == null) {
-        log.warn(`LanguageManager: ${bufferType} already removed for period`, period);
-        return;
-      } else {
-        delete periodItem[bufferType];
-        if (periodItem.audio == null && periodItem.text == null) {
-          this._periods.removeFirst(periodItem);
-        }
-        return;
-      }
+    if (periodIndex == null) {
+      log.warn(`LanguageManager: ${bufferType} not found for period`, period);
+      return;
     }
-    log.warn(`LanguageManager: ${bufferType} not found for period`, period);
+
+    const periodItem = this._periods.get(periodIndex);
+    if (periodItem[bufferType] == null) {
+      log.warn(`LanguageManager: ${bufferType} already removed for period`, period);
+      return;
+    }
+    delete periodItem[bufferType];
+    if (periodItem.audio == null && periodItem.text == null) {
+      this._periods.removeFirst(periodItem);
+    }
   }
 
+  /**
+   * Update the choice of all added Periods based on:
+   *   1. What was the last chosen adaptation
+   *   2. If not found, the preferences
+   */
   update() {
     this._updateAudioTracks();
     this._updateTextTracks();
   }
 
+  setPreferredAudioTrack(period : Period) {
+    const periodItem = getPeriodItem(this._periods, period);
+    const audioInfos = periodItem && periodItem.audio;
+    if (!audioInfos || !periodItem) {
+      throw new Error("LanguageManager: Given Period not found.");
+    }
+
+    const preferredAudioTracks = this._preferredAudioTracks;
+    const audioAdaptations = periodItem.period.adaptations.audio || [];
+    if (
+      audioInfos.currentChoice === undefined ||
+      !isAudioAdaptationOptimal(
+        audioInfos.currentChoice, audioAdaptations, preferredAudioTracks)
+    ) {
+      const optimalAdaptation = findFirstOptimalAudioAdaptation(
+        audioAdaptations, preferredAudioTracks);
+
+      audioInfos.currentChoice = optimalAdaptation;
+      audioInfos.adaptation$.next(optimalAdaptation);
+    }
+  }
+
+  setPreferredTextTrack(period : Period) {
+    const periodItem = getPeriodItem(this._periods, period);
+    const textInfos = periodItem && periodItem.text;
+    if (!textInfos || !periodItem) {
+      throw new Error("LanguageManager: Given Period not found.");
+    }
+
+    const preferredTextTracks = this._preferredTextTracks;
+    const textAdaptations = periodItem.period.adaptations.text || [];
+    if (
+      textInfos.currentChoice === undefined ||
+      !isTextAdaptationOptimal(
+        textInfos.currentChoice, textAdaptations, preferredTextTracks)
+    ) {
+      const optimalAdaptation = findFirstOptimalTextAdaptation(
+        textAdaptations, preferredTextTracks);
+
+      textInfos.currentChoice = optimalAdaptation;
+      textInfos.adaptation$.next(optimalAdaptation);
+    }
+  }
+
   /**
-   * Set audio track based on the ID of its adaptation for the first period.
-   *
-   * Set audio tracks for the next periods accordingly.
+   * Set audio track based on the ID of its adaptation for a given added Period.
+   * @param {Period} period - The concerned Period.
    * @param {string|Number} wantedId - adaptation id of the wanted track
    * @throws Error - Throws if the given id is not found in any audio adaptation
+   * of the given Period.
    */
-  setAudioTrackByID(wantedId : string|number) : void {
-    const firstPeriod : undefined|ILMPeriodItem = this._periods.head();
-    const audioInfos = firstPeriod && firstPeriod.audio;
+  setAudioTrackByID(period : Period, wantedId : string|number) : void {
+    const periodItem = getPeriodItem(this._periods, period);
+    const audioInfos = periodItem && periodItem.audio;
     if (!audioInfos) {
-      throw new Error("LanguageManager: No audio track found in the current period.");
+      throw new Error("LanguageManager: Given Period not found.");
     }
 
     const foundAdaptation = arrayFind(audioInfos.adaptations, ({ id }) =>
@@ -201,32 +248,30 @@ export default class LanguageManager {
     if (foundAdaptation === undefined) {
       throw new Error("Audio Track not found.");
     }
-
-    addPreference(this._preferredAudioTracks, {
-      language: foundAdaptation.language || "",
-      normalized: foundAdaptation.normalizedLanguage || "",
-      audioDescription: !!foundAdaptation.isAudioDescription,
-    });
-
     if (audioInfos.currentChoice !== foundAdaptation) {
       audioInfos.currentChoice = foundAdaptation;
       audioInfos.adaptation$.next(foundAdaptation);
     }
-    this._updateAudioTracks();
+
+    // addPreference(this._preferredAudioTracks, {
+    //   language: foundAdaptation.language || "",
+    //   normalized: foundAdaptation.normalizedLanguage || "",
+    //   audioDescription: !!foundAdaptation.isAudioDescription,
+    // });
   }
 
   /**
-   * Set text track based on the ID of its adaptation.
-   *
-   * Set text tracks for the next periods accordingly.
+   * Set text track based on the ID of its adaptation for a given added Period.
+   * @param {Period} period - The concerned Period.
    * @param {string|Number} wantedId - adaptation id of the wanted track
    * @throws Error - Throws if the given id is not found in any text adaptation
+   * of the given Period.
    */
-  setTextTrackByID(wantedId : string|number) : void {
-    const firstPeriod : undefined|ILMPeriodItem = this._periods.head();
-    const textInfos = firstPeriod && firstPeriod.text;
+  setTextTrackByID(period : Period, wantedId : string|number) : void {
+    const periodItem = getPeriodItem(this._periods, period);
+    const textInfos = periodItem && periodItem.text;
     if (!textInfos) {
-      throw new Error("LanguageManager: No text track found in the current period.");
+      throw new Error("LanguageManager: Given Period not found.");
     }
     const foundAdaptation = arrayFind(textInfos.adaptations, ({ id }) =>
       id === wantedId);
@@ -234,38 +279,52 @@ export default class LanguageManager {
     if (foundAdaptation === undefined) {
       throw new Error("Text Track not found.");
     }
-
-    addPreference(this._preferredTextTracks, {
-      language: foundAdaptation.language || "",
-      normalized: foundAdaptation.normalizedLanguage || "",
-      closedCaption: !!foundAdaptation.isClosedCaption,
-    });
-
     if (textInfos.currentChoice !== foundAdaptation) {
       textInfos.currentChoice = foundAdaptation;
       textInfos.adaptation$.next(foundAdaptation);
     }
-    this._updateTextTracks();
+
+    // addPreference(this._preferredTextTracks, {
+    //   language: foundAdaptation.language || "",
+    //   normalized: foundAdaptation.normalizedLanguage || "",
+    //   closedCaption: !!foundAdaptation.isClosedCaption,
+    // });
   }
 
   /**
-   * Disable the current audio track for any Period.
+   * Disable the given audio track for a given Period.
+   * @param {Period} period - The concerned Period.
    */
-  disableAudioTrack() : void {
-    addPreference(this._preferredAudioTracks, null);
-    this._updateAudioTracks();
+  disableAudioTrack(period : Period) : void {
+    const periodItem = getPeriodItem(this._periods, period);
+    const audioInfos = periodItem && periodItem.audio;
+    if (!audioInfos) {
+      throw new Error("LanguageManager: Given Period not found.");
+    }
+    if (audioInfos.currentChoice !== null) {
+      audioInfos.currentChoice = null;
+      audioInfos.adaptation$.next(null);
+    }
   }
 
   /**
-   * Disable the current text track for any period.
+   * Disable the current text track for a given period.
+   * @param {Period} period - The concerned Period.
    */
-  disableTextTrack() : void {
-    addPreference(this._preferredTextTracks, null);
-    this._updateTextTracks();
+  disableTextTrack(period : Period) : void {
+    const periodItem = getPeriodItem(this._periods, period);
+    const textInfos = periodItem && periodItem.text;
+    if (!textInfos) {
+      throw new Error("LanguageManager: Given Period not found.");
+    }
+    if (textInfos.currentChoice !== null) {
+      textInfos.currentChoice = null;
+      textInfos.adaptation$.next(null);
+    }
   }
 
   /**
-   * Returns an object describing the chosen audio track for the first audio
+   * Returns an object describing the chosen audio track for the given audio
    * Period.
    * This object has the following keys:
    *   - language {string}
@@ -278,9 +337,9 @@ export default class LanguageManager {
    * @param {Period} period
    * @returns {Object|null}
    */
-  getChosenAudioTrack() : ILMAudioTrack|null {
-    const firstAudioPeriod = this._periods.head();
-    const audioInfos = firstAudioPeriod && firstAudioPeriod.audio;
+  getChosenAudioTrack(period : Period) : ILMAudioTrack|null {
+    const periodItem = getPeriodItem(this._periods, period);
+    const audioInfos = periodItem && periodItem.audio;
     if (audioInfos == null) {
       return null;
     }
@@ -297,7 +356,7 @@ export default class LanguageManager {
   }
 
   /**
-   * Returns an object describing the chosen text track for the first text
+   * Returns an object describing the chosen text track for the given text
    * Period.
    * This object has the following keys:
    *   - language {string}
@@ -310,9 +369,9 @@ export default class LanguageManager {
    * @param {Period} period
    * @returns {Object|null}
    */
-  getChosenTextTrack() : ILMTextTrack|null {
-    const firstTextPeriod = this._periods.head();
-    const textInfos = firstTextPeriod && firstTextPeriod.text;
+  getChosenTextTrack(period : Period) : ILMTextTrack|null {
+    const periodItem = getPeriodItem(this._periods, period);
+    const textInfos = periodItem && periodItem.text;
     if (textInfos == null) {
       return null;
     }
@@ -339,9 +398,9 @@ export default class LanguageManager {
    *   - active {Boolean}
    * @returns {Array.<Object>}
    */
-  getAvailableAudioTracks() : ILMAudioTrackList {
-    const firstAudioPeriod = this._periods.head();
-    const audioInfos = firstAudioPeriod && firstAudioPeriod.audio;
+  getAvailableAudioTracks(period : Period) : ILMAudioTrackList {
+    const periodItem = getPeriodItem(this._periods, period);
+    const audioInfos = periodItem && periodItem.audio;
     if (audioInfos == null) {
       return [];
     }
@@ -372,9 +431,9 @@ export default class LanguageManager {
    * @param {Period} period
    * @returns {Array.<Object>}
    */
-  getAvailableTextTracks() : ILMTextTrackList {
-    const firstTextPeriod = this._periods.head();
-    const textInfos = firstTextPeriod && firstTextPeriod.text;
+  getAvailableTextTracks(period : Period) : ILMTextTrackList {
+    const periodItem = getPeriodItem(this._periods, period);
+    const textInfos = periodItem && periodItem.text;
     if (textInfos == null) {
       return [];
     }
@@ -642,13 +701,15 @@ function getPeriodItem(
   }
 }
 
-function addPreference<T extends IAudioTrackPreference|ITextTrackPreference>(
-  preferences : T[],
-  preference : T
-) {
-  // TODO only one reference of the same language per Array?
-  if (preferences.length >= PREFERENCES_MAX_LENGTH - 1) {
-    preferences.pop();
-  }
-  preferences.unshift(preference);
-}
+// const PREFERENCES_MAX_LENGTH = 10;
+
+// function addPreference<T extends IAudioTrackPreference|ITextTrackPreference>(
+//   preferences : T[],
+//   preference : T
+// ) {
+//   // TODO only one reference of the same language per Array?
+//   if (preferences.length >= PREFERENCES_MAX_LENGTH - 1) {
+//     preferences.pop();
+//   }
+//   preferences.unshift(preference);
+// }

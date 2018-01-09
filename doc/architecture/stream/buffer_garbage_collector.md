@@ -1,8 +1,6 @@
 # Buffer Garbage Collector
 
-## Overview
-
-The BufferGarbageCollector is a function used by the RxPlayer's Stream to perform sessions of "garbage collection" manually on a given SourceBuffer.
+The BufferGarbageCollector is a function used by the RxPlayer's Stream to periodically perform "garbage collection" manually on a given SourceBuffer.
 
 It is based on the following building bricks:
   - A clock, which is an observable emitting the current time (in seconds) when the garbage collection task should be performed

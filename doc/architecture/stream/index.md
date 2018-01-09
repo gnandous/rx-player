@@ -40,7 +40,7 @@ As such, during the various events happening on content playback, the Stream wil
   - Manifest refreshing management
   - ...
 
-## Implementation
+## Usage
 
 Concretely, the Stream is a function which returns an Observable. This Observable:
   - will automatically play the described content on subscription
@@ -68,6 +68,4 @@ Events allows the Stream to reports milestones of the content playback, such as 
 
 It's also a way for the Stream to communicate informations about the content and give some controls to the user.
 
-For example, as available audio languages are only known after the manifest has been downloaded and parsed, and as it is most of all a user preference, the Stream can emit to the API Subjects allowing the API to "choose" at any time the wanted language.
-
-It it then the job of the API to manage these events.
+For example, as available audio languages are only known after the manifest has been downloaded and parsed, and as it is most of all a user preference, the Stream can emit to the API RxJS Subjects allowing the API to "choose" at any time the wanted language.

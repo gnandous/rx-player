@@ -44,28 +44,38 @@ import SourceBufferManager, {
   SourceBufferOptions,
   SupportedBufferTypes,
 } from "../source_buffers";
-// import PeriodList from "./periods_list";
+import ActivePeriodEmitter, {
+  IPeriodBufferItem,
+} from "./active_period_emitter";
 import SegmentBookkeeper from "./segment_bookkeeper";
 import EVENTS, {
+  IActivePeriodChangedEvent,
   IAdaptationChangeEvent,
   IPeriodBufferClearedEvent,
   IPeriodBufferReadyEvent,
 } from "./stream_events";
 
 /**
- * Events coming from single PeriodBuffers, on which rely the BuffersHandler.
+ * Events coming from single PeriodBuffer (Buffer linked to a Period and a type).
  */
-export type IPeriodBufferEvent =
+type IPeriodBufferEvent =
   IAdaptationBufferEvent |
   IAdaptationChangeEvent;
 
 /**
- * Every events sent by the BuffersHandler.
+ * Events coming from function(s) managing multiple PeriodBuffers.
+ */
+type IMultiplePeriodBuffersEvent =
+  IPeriodBufferEvent |
+  IPeriodBufferReadyEvent |
+  IPeriodBufferClearedEvent;
+
+/**
+ * Every events sent by the BuffersHandler exported here.
  */
 export type IBufferHandlerEvent =
-  IPeriodBufferEvent |
-  IPeriodBufferReadyEvent | // when a new PeriodBuffer is created
-  IPeriodBufferClearedEvent; // when a PeriodBuffer is removed
+  IActivePeriodChangedEvent |
+  IMultiplePeriodBuffersEvent;
 
 /**
  * Create and manage the various Buffer Observables needed for the content to
@@ -126,15 +136,32 @@ export default function BuffersHandler(
   //    does not support adding more tracks during playback.
   createNativeSourceBuffersForPeriod(sourceBufferManager, firstPeriod);
 
+  const addPeriodBuffer$ = new Subject<IPeriodBufferItem>();
+  const removePeriodBuffer$ = new Subject<IPeriodBufferItem>();
+
   // Manage Buffers for every possible types of content
   const buffersArray = BUFFER_TYPES
     .map((adaptationType) => {
       // :/ TS does not have the intelligence to know that here
       const bufferType = adaptationType as SupportedBufferTypes;
-      return manageEveryBuffers(bufferType, firstPeriod);
+      return manageEveryBuffers(bufferType, firstPeriod)
+        .do((evt) => {
+          if (evt.type === "periodBufferReady") {
+            addPeriodBuffer$.next(evt.value);
+          } else if (evt.type === "periodBufferCleared") {
+            removePeriodBuffer$.next(evt.value);
+          }
+        }).share();
     });
 
-  return Observable.merge(...buffersArray);
+  const activePeriod$ : Observable<Period> =
+    ActivePeriodEmitter(addPeriodBuffer$, removePeriodBuffer$)
+      .filter((period) : period is Period => !!period);
+
+  return Observable.merge(
+    activePeriod$.map(period => EVENTS.activePeriodChanged(period)),
+    ...buffersArray
+  );
 
   /**
    * Manage creation and removal of Buffers for every Periods.
@@ -149,7 +176,7 @@ export default function BuffersHandler(
   function manageEveryBuffers(
     bufferType : SupportedBufferTypes,
     basePeriod : Period
-  ) : Observable<IBufferHandlerEvent> {
+  ) : Observable<IMultiplePeriodBuffersEvent> {
     /**
      * Keep a PeriodList for cases such as seeking ahead/before the
      * buffers already created.
@@ -158,6 +185,23 @@ export default function BuffersHandler(
      * @type {ConsecutivePeriodList}
      */
     const periodList = new SortedList<Period>((a, b) => a.start - b.start);
+
+    /**
+     * Returns true if the given time is either:
+     *   - less than the start of the chronologically first Period
+     *   - more than the end of the chronologically last Period
+     * @param {number} time
+     * @returns {boolean}
+     */
+    function isOutOfPeriodList(time : number) : boolean {
+      const head = periodList.head();
+      const last = periodList.last();
+      if (head == null || last == null) { // if no period
+        return true;
+      }
+      return head.start > time ||
+        (last.end || Infinity) < time;
+    }
 
     /**
      * Destroy the current set of consecutive buffers.
@@ -169,19 +213,10 @@ export default function BuffersHandler(
     const destroyCurrentBuffers = new Subject<void>();
 
     const restartBuffers$ = clock$
-      .filter(({ currentTime, timeOffset }) => {
-        const head = periodList.head();
-        const last = periodList.last();
-        if (head == null || last == null) {
-          return false;
-        }
-        const wantedTime = currentTime + timeOffset;
-        return head.start > wantedTime ||
-          (last.end || Infinity) < wantedTime;
-      })
-      .take(1) // Will emit a single time when the clock goes behind/ahead of the
-               // current periods
-
+      .filter(({ currentTime, timeOffset }) =>
+        isOutOfPeriodList(timeOffset + currentTime)
+      )
+      .take(1)
       .do(({ currentTime, timeOffset }) => {
         log.info("Current position out of the bounds of the active periods," +
           "re-creating buffers.", bufferType, currentTime + timeOffset);
@@ -208,7 +243,7 @@ export default function BuffersHandler(
       } else if (message.type === "periodBufferCleared") {
         periodList.removeFirst(message.value.period);
       }
-    });
+    }).share(); // as always, with side-effects
 
     return Observable.merge(currentBuffers$, restartBuffers$);
   }
@@ -249,7 +284,7 @@ export default function BuffersHandler(
     bufferType : SupportedBufferTypes,
     basePeriod : Period,
     destroy$ : Observable<void>
-  ) : Observable<IBufferHandlerEvent> {
+  ) : Observable<IMultiplePeriodBuffersEvent> {
     log.info("creating new Buffer for", bufferType, basePeriod);
 
     /**
@@ -339,7 +374,7 @@ export default function BuffersHandler(
      * Buffer for the current Period.
      * @type {Observable}
      */
-    const currentBuffer$ : Observable<IBufferHandlerEvent> =
+    const currentBuffer$ : Observable<IMultiplePeriodBuffersEvent> =
       Observable.of(EVENTS.periodBufferReady(bufferType, basePeriod, adaptation$))
         .concat(periodBuffer$)
         .takeUntil(killCurrentBuffer$)
@@ -354,7 +389,7 @@ export default function BuffersHandler(
       currentBuffer$,
       nextPeriodBuffer$,
       destroyAll$.ignoreElements()
-    ) as Observable<IBufferHandlerEvent>;
+    ) as Observable<IMultiplePeriodBuffersEvent>;
   }
 
   /**
@@ -383,12 +418,12 @@ export default function BuffersHandler(
 
       if (adaptation == null) {
         if (sourceBufferManager.has(bufferType)) {
-          const sourceBuffer = sourceBufferManager.get(bufferType);
+          const _queuedSourceBuffer = sourceBufferManager.get(bufferType);
 
           // TODO use SegmentBookeeper to remove the complete range of segments
           // linked to this period (Min between that and period.start for example)
           // const segmentBookkeeper = segmentBookkeepers.get(queuedSourceBuffer);
-          sourceBuffer
+          _queuedSourceBuffer
             .removeBuffer({ start: period.start, end: period.end || Infinity });
         }
 
@@ -400,11 +435,17 @@ export default function BuffersHandler(
       log.info(`updating ${bufferType} adaptation`, adaptation);
 
       // 1 - create or reuse the SourceBuffer
-      const codec = getFirstDeclaredMimeType(adaptation);
-      const queuedSourceBuffer = sourceBufferManager
-        .createSourceBuffer(bufferType, codec, sourceBufferOptions[bufferType]);
+      let queuedSourceBuffer : QueuedSourceBuffer<any>;
+      if (sourceBufferManager.has(bufferType)) {
+        log.info("reusing a previous SourceBuffer for the type", bufferType);
+        queuedSourceBuffer = sourceBufferManager.get(bufferType);
+      } else {
+        const codec = getFirstDeclaredMimeType(adaptation);
+        queuedSourceBuffer = sourceBufferManager
+          .createSourceBuffer(bufferType, codec, sourceBufferOptions[bufferType]);
+      }
 
-      // 2 - create or reuse its associated BufferGarbageCollector and
+      // 2 - create or reuse the associated BufferGarbageCollector and
       // SegmentBookkeeper
       const bufferGarbageCollector$ = garbageCollectors.get(queuedSourceBuffer);
       const segmentBookkeeper = segmentBookkeepers.get(queuedSourceBuffer);

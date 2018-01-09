@@ -78,10 +78,10 @@ export interface IStreamLoadedEvent {
   value : true;
 }
 
-export interface IPeriodChangeEvent {
-  type : "periodChange";
+export interface IActivePeriodChangedEvent {
+  type: "activePeriodChanged";
   value : {
-    period : Period;
+    period: Period;
   };
 }
 
@@ -158,9 +158,9 @@ const STREAM_EVENTS = {
     };
   },
 
-  periodChange(period : Period) : IPeriodChangeEvent {
+  activePeriodChanged(period : Period) : IActivePeriodChangedEvent {
     return {
-      type : "periodChange",
+      type : "activePeriodChanged",
       value : {
         period,
       },
@@ -223,7 +223,7 @@ export type IStreamEvent =
   IAdaptationChangeEvent |
   IPeriodBufferClearedEvent |
   IManifestUpdateEvent |
-  IPeriodChangeEvent |
+  IActivePeriodChangedEvent |
   IPeriodBufferReadyEvent |
   ISessionEvent |
   ISpeedChangedEvent |

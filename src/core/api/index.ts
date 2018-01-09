@@ -76,7 +76,6 @@ import { SupportedBufferTypes } from "../source_buffers";
 import Stream, {
   IStreamEvent,
 } from "../stream";
-import ActivePeriodsStore from "./active_periods_store";
 import createClock, {
   IClockTick
 } from "./clock";
@@ -107,6 +106,11 @@ interface IPositionUpdateItem {
   bufferGap : number;
   wallClockTime? : number;
   liveGap? : number;
+}
+
+interface IBitrateEstimate {
+  type : SupportedBufferTypes;
+  bitrate : number|undefined;
 }
 
 /**
@@ -235,21 +239,6 @@ class Player extends EventEmitter<any> {
     image? : number;
   };
 
-  /**
-   * Store every active Periods and their linked buffer types, in chronological
-   * order.
-   *
-   * Periods in this list always respect the following rules:
-   *   - The first Period in the list is the currently played one.
-   *   - Any subsequent one are pre-loaded periods, consecutive to the one
-   *     before in chronological order.
-   *
-   * null if no content is active
-   * @private
-   * @type {SortedList}
-   */
-  private _priv_activePeriods : ActivePeriodsStore|null;
-
   private _priv_currentPeriod : Period|null;
 
   /**
@@ -337,11 +326,24 @@ class Player extends EventEmitter<any> {
   private _priv_currentManifest : Manifest|null;
 
   /**
-   * Events memory, to avoid re-triggering the same event twice.
+   * Store last state of various values sent as events, to avoid re-triggering
+   * them multiple times in a row.
+   *
+   * All those events are linked to the content being played and can be cleaned
+   * on stop.
+   *
    * @private
    * @type {Object}
    */
-  private _priv_recordedEvents : IDictionary<any>; // TODO?
+  private _priv_contentEventsMemory : {
+    period: null|Period; // current Period
+    audioTrack: null|ILMAudioTrack; // audioTrack for the current Period
+    textTrack: null|ILMTextTrack; // textTrack for the current Period
+    videoBitrate: null|number; // audioBitrate for the current Period
+    audioBitrate: null|number; // videoBitrate for the current Period
+    bitrateEstimation: undefined|IBitrateEstimate; // last calculated bitrate
+                                                   // estimation for a type
+  };
 
   /**
    * Current fatal error which STOPPED the player.
@@ -499,10 +501,16 @@ class Player extends EventEmitter<any> {
     this._priv_currentManifest = null;
     this._priv_activeRepresentations = null;
     this._priv_activeAdaptations = null;
-    this._priv_activePeriods = null;
     this._priv_currentPeriod = null;
 
-    this._priv_recordedEvents = {}; // event memory
+    this._priv_contentEventsMemory = {
+      period: null,
+      audioTrack: null,
+      textTrack: null,
+      videoBitrate: null,
+      audioBitrate: null,
+      bitrateEstimation: undefined,
+    };
 
     this._priv_fatalError = null;
     this._priv_currentImagePlaylist = null;
@@ -589,8 +597,6 @@ class Player extends EventEmitter<any> {
     // now that every check has passed, stop previous content
     // TODO First stop?
     this.stop();
-
-    this._priv_activePeriods = new ActivePeriodsStore();
 
     // prepare initial tracks played
     this._priv_initialAudioTrack = defaultAudioTrack;
@@ -734,11 +740,6 @@ class Player extends EventEmitter<any> {
         streamDisposable.unsubscribe();
       }
     });
-
-    this._priv_activePeriods.activePeriod$
-      .skipWhile(val => val === null) // skip initial "null" value
-      .takeUntil(this._priv_stopCurrentContent$)
-      .subscribe((period) => this._priv_onCurrentPeriodChange(period));
 
     videoPlays$
       .takeUntil(this._priv_stopCurrentContent$)
@@ -1346,10 +1347,10 @@ class Player extends EventEmitter<any> {
    * @returns {Array.<Object>|null}
    */
   getAvailableAudioTracks() : ILMAudioTrackList | null {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       return null;
     }
-    return this._priv_languageManager.getAvailableAudioTracks();
+    return this._priv_languageManager.getAvailableAudioTracks(this._priv_currentPeriod);
   }
 
   /**
@@ -1357,10 +1358,10 @@ class Player extends EventEmitter<any> {
    * @returns {Array.<Object>|null}
    */
   getAvailableTextTracks() : ILMTextTrackList | null {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       return null;
     }
-    return this._priv_languageManager.getAvailableTextTracks();
+    return this._priv_languageManager.getAvailableTextTracks(this._priv_currentPeriod);
   }
 
   /**
@@ -1368,10 +1369,10 @@ class Player extends EventEmitter<any> {
    * @returns {string}
    */
   getAudioTrack() : ILMAudioTrack|null|undefined {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       return undefined;
     }
-    return this._priv_languageManager.getChosenAudioTrack();
+    return this._priv_languageManager.getChosenAudioTrack(this._priv_currentPeriod);
   }
 
   /**
@@ -1379,10 +1380,10 @@ class Player extends EventEmitter<any> {
    * @returns {string}
    */
   getTextTrack() : ILMTextTrack|null|undefined {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       return undefined;
     }
-    return this._priv_languageManager.getChosenTextTrack();
+    return this._priv_languageManager.getChosenTextTrack(this._priv_currentPeriod);
   }
 
   /**
@@ -1392,11 +1393,11 @@ class Player extends EventEmitter<any> {
    * @throws Error - the given id is linked to no audio track.
    */
   setAudioTrack(audioId : string|number) : void {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       throw new Error("No compatible content launched.");
     }
     try {
-      this._priv_languageManager.setAudioTrackByID(audioId);
+      this._priv_languageManager.setAudioTrackByID(this._priv_currentPeriod, audioId);
     }
     catch (e) {
       throw new Error("player: unknown audio track");
@@ -1410,11 +1411,11 @@ class Player extends EventEmitter<any> {
    * @throws Error - the given id is linked to no text track.
    */
   setTextTrack(textId : string|number) : void {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       throw new Error("No compatible content launched.");
     }
     try {
-      this._priv_languageManager.setTextTrackByID(textId);
+      this._priv_languageManager.setTextTrackByID(this._priv_currentPeriod, textId);
     }
     catch (e) {
       throw new Error("player: unknown text track");
@@ -1425,10 +1426,10 @@ class Player extends EventEmitter<any> {
    * Disable subtitles for the current content.
    */
   disableTextTrack() : void {
-    if (!this._priv_languageManager) {
+    if (!this._priv_languageManager || !this._priv_currentPeriod) {
       return;
     }
-    return this._priv_languageManager.disableTextTrack();
+    return this._priv_languageManager.disableTextTrack(this._priv_currentPeriod);
   }
 
   /**
@@ -1481,11 +1482,16 @@ class Player extends EventEmitter<any> {
     // manifest
     this._priv_activeRepresentations = null;
     this._priv_activeAdaptations = null;
-    this._priv_activePeriods = null;
     this._priv_currentManifest = null;
 
-    // event memory
-    this._priv_recordedEvents = {};
+    this._priv_contentEventsMemory = {
+      period: null,
+      audioTrack: null,
+      textTrack: null,
+      videoBitrate: null,
+      audioBitrate: null,
+      bitrateEstimation: undefined,
+    };
 
     // misc
     this._priv_fatalError = null;
@@ -1508,22 +1514,55 @@ class Player extends EventEmitter<any> {
    * @param {string} type - the type of the updated state (videoBitrate...)
    * @param {*} value - its new value
    */
-  private _priv_recordState(type : string, value : any) : void {
-    const prev = this._priv_recordedEvents[type];
+  private _priv_triggerContentEvent(
+    type : "audioTrack",
+    value : ILMAudioTrack|null
+  ) : void;
+  private _priv_triggerContentEvent(
+    type : "textTrack",
+    value : ILMTextTrack|null
+  ) : void;
+  private _priv_triggerContentEvent(
+    type : "period",
+    value : Period
+  ) : void;
+  private _priv_triggerContentEvent(
+    type : "bitrateEstimation",
+    value : IBitrateEstimate
+  ) : void;
+  private _priv_triggerContentEvent(
+    type : "videoBitrate"|"audioBitrate",
+    value : number|null
+  ) : void;
+  private _priv_triggerContentEvent(
+    type :
+      "audioTrack" |
+      "textTrack" |
+      "period" |
+      "videoBitrate" |
+      "audioBitrate" |
+      "bitrateEstimation",
+    value : ILMAudioTrack|ILMTextTrack|Period|IBitrateEstimate|number|null
+  ) : void {
+    const prev = this._priv_contentEventsMemory[type];
     if (!deepEqual(prev, value)) {
-      this._priv_recordedEvents[type] = value;
+      this._priv_contentEventsMemory[type] = value;
       this.trigger(`${type}Change`, value);
     }
   }
 
   /**
-   * Called each time the Stream Observable emits.
+   * Triggered each time the Stream Observable emits.
    *
    * React to various events.
+   *
    * @param {Object} streamInfos - payload emitted
    */
   private _priv_onStreamNext(streamInfos : IStreamEvent) : void {
     switch (streamInfos.type) {
+      case "activePeriodChanged":
+        this._priv_onActivePeriodChanged(streamInfos.value);
+        break;
       case "periodBufferReady":
         this._priv_onPeriodBufferReady(streamInfos.value);
         break;
@@ -1563,17 +1602,11 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Called each time the Stream emits through its errorStream (non-fatal
-   * errors).
-   * @param {Object} streamInfos
-   */
-  private _priv_onStreamWarning(error : Error) : void {
-    this.trigger("warning", error);
-  }
-
-  /**
-   * Called when the Stream instance throws (fatal errors).
-   * @param {Object} streamInfos
+   * Triggered when the Stream throws (fatal errors).
+   *
+   * Clean-up ressources and signal that the content has stopped on error.
+   *
+   * @param {Error} error
    */
   private _priv_onStreamError(error : Error) : void {
     this._priv_stopCurrentContent$.next();
@@ -1594,8 +1627,9 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Called when the Stream instance complete.
-   * @param {Object} streamInfos
+   * Triggered when the Stream instance ends.
+   *
+   * Clean-up ressources and signal that the content has ended.
    */
   private _priv_onStreamComplete() : void {
     this._priv_stopCurrentContent$.next();
@@ -1604,11 +1638,24 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Called when the stream starts.
+   * Triggered when the Stream emits a warning.
+   *
+   * Trigger the right Player event.
+   * @param {Object} streamInfos
+   */
+  private _priv_onStreamWarning(error : Error) : void {
+    this.trigger("warning", error);
+  }
+
+  /**
+   * Triggered when the stream starts.
+   *
+   * Initialize various private properties and emit initial event.
+   *
    * @param {Object} value
    * @param {Manifest} value.manifest - The Manifest instance
-   * @param {Object} abrManager - ABR manager which can be used to select the
-   * wanted bandwidth.
+   * @param {Object} value.abrManager - ABR manager which can be used to select
+   * the wanted bandwidth.
    */
   private _priv_onStreamStarted(value : {
     abrManager : ABRManager;
@@ -1628,13 +1675,56 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Triggered each times the Stream "prepares" a new Period, and
-   * needs the API to sent it its chosen adaptation.
+   * Triggered each times the current Period Changed.
+   *
+   * Store and emit initial state for the Period.
    *
    * @param {Object} value
-   * @param {Object} value.period
-   * @param {Object} value.adaptations
-   * XXX TODO Simplify that mess
+   * @param {Period} value.period
+   */
+  private _priv_onActivePeriodChanged({ period } : { period : Period }) : void {
+    this._priv_currentPeriod = period;
+    this._priv_triggerContentEvent("period", period);
+
+    // Emit intial events for the Period
+    if (this._priv_languageManager) {
+      const audioTrack = this._priv_languageManager.getChosenAudioTrack(period);
+      const textTrack = this._priv_languageManager.getChosenTextTrack(period);
+
+      this._priv_triggerContentEvent("audioTrack", audioTrack);
+      this._priv_triggerContentEvent("textTrack", textTrack);
+    } else {
+      this._priv_triggerContentEvent("audioTrack", null);
+      this._priv_triggerContentEvent("textTrack", null);
+    }
+
+    const activeAudioRepresentations = this.getCurrentRepresentations();
+    if (activeAudioRepresentations && activeAudioRepresentations.audio != null) {
+      const bitrate = activeAudioRepresentations.audio.bitrate;
+      this._priv_triggerContentEvent("audioBitrate", bitrate != null ? bitrate : -1);
+    } else {
+      this._priv_triggerContentEvent("audioBitrate", null);
+    }
+
+    const activeVideoRepresentations = this.getCurrentRepresentations();
+    if (activeVideoRepresentations && activeVideoRepresentations.video != null) {
+      const bitrate = activeVideoRepresentations.video.bitrate;
+      this._priv_triggerContentEvent("videoBitrate", bitrate != null ? bitrate : -1);
+    } else {
+      this._priv_triggerContentEvent("videoBitrate", null);
+    }
+  }
+
+  /**
+   * Triggered each times the Stream "prepares" a new Period, and
+   * needs the API to send it its chosen Adaptation.
+   *
+   * Choose the right Adaptation for the Period and emit it.
+   *
+   * @param {Object} value
+   * @param {string} value.type
+   * @param {Period} value.period
+   * @param {Subject} value.adaptation$
    */
   private _priv_onPeriodBufferReady(value : {
     type : SupportedBufferTypes;
@@ -1643,43 +1733,52 @@ class Player extends EventEmitter<any> {
   }) : void {
     const { type, period, adaptation$ } = value;
 
-    if ((type === "audio" || type === "text")) {
-      if (!this._priv_languageManager) {
-        log.error(`LanguageManager not instanciated for a new ${type} period`);
-        adaptation$.next(null);
-      } else {
-        this._priv_languageManager.addPeriod(type, period, adaptation$);
-      }
-    } else {
-      const adaptations = period.adaptations[type];
-      if (adaptations && adaptations.length) {
-        adaptation$.next(adaptations[0]);
-      } else {
-        adaptation$.next(null);
-      }
-    }
+    switch (type) {
 
-    if (!this._priv_activePeriods) {
-      log.error("API: non ActivePeriodsStore instanciated");
-    } else {
-      this._priv_activePeriods.add(period, type);
+      case "audio":
+        if (!this._priv_languageManager) {
+          log.error(`LanguageManager not instanciated for a new ${type} period`);
+          adaptation$.next(null);
+        } else {
+          this._priv_languageManager.addPeriod(type, period, adaptation$);
+          this._priv_languageManager.setPreferredAudioTrack(period);
+        }
+        break;
+
+      case "text":
+        if (!this._priv_languageManager) {
+          log.error(`LanguageManager not instanciated for a new ${type} period`);
+          adaptation$.next(null);
+        } else {
+          this._priv_languageManager.addPeriod(type, period, adaptation$);
+          this._priv_languageManager.setPreferredTextTrack(period);
+        }
+        break;
+
+      default:
+        const adaptations = period.adaptations[type];
+        if (adaptations && adaptations.length) {
+          adaptation$.next(adaptations[0]);
+        } else {
+          adaptation$.next(null);
+        }
+        break;
     }
   }
 
   /**
    * Triggered each times the Stream "removes" a Period.
+   *
+   * Update the LanguageManager to remove the corresponding Period.
+   *
+   * @param {Object} value
+   * @param {Period} value.period
    */
   private _priv_onPeriodBufferCleared(value : {
     type : SupportedBufferTypes;
     period : Period;
   }) : void {
     const { type, period } = value;
-
-    if (!this._priv_activePeriods) {
-      log.error("API: non ActivePeriodsStore instanciated");
-    } else {
-      this._priv_activePeriods.remove(period, type);
-    }
 
     if (type === "audio" || type === "text") {
       if (this._priv_languageManager) {
@@ -1688,14 +1787,19 @@ class Player extends EventEmitter<any> {
     }
   }
 
+  /**
+   * Triggered each times the Manifest is updated.
+   *
+   * Update the LanguageManager and emit events.
+   *
+   * @param {Object} value
+   * @param {Manifest} value.manifest
+   */
   private _priv_onManifestUpdate(value : { manifest : Manifest }) : void {
-    if (__DEV__) {
-      assert(value && value.manifest, "no manifest received");
-    }
-
     const { manifest } = value;
     this._priv_currentManifest = manifest;
 
+    // Update the languages chosen if it changed
     if (this._priv_languageManager) {
       this._priv_languageManager.update();
     }
@@ -1704,9 +1808,14 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * @param {Object} obj
-   * @param {string} obj.type
-   * @param {Object} obj.adaptation
+   * Triggered each times a new Adaptation is considered by the Stream.
+   *
+   * Store given Adaptation and emit it if from the current Period.
+   *
+   * @param {Object} value
+   * @param {string} value.type
+   * @param {Period} value.period
+   * @param {Adaptation} value.adaptation
    */
   private _priv_onAdaptationChange({
     type,
@@ -1734,17 +1843,22 @@ class Player extends EventEmitter<any> {
       period != null && period === this._priv_currentPeriod
     ) {
       if (type === "audio") {
-        const audioTrack = this._priv_languageManager.getChosenAudioTrack();
-        this._priv_recordState("audioTrack", audioTrack);
+        const audioTrack = this._priv_languageManager
+          .getChosenAudioTrack(this._priv_currentPeriod);
+        this._priv_triggerContentEvent("audioTrack", audioTrack);
       } else if (type === "text") {
-        const textTrack = this._priv_languageManager.getChosenTextTrack();
-        this._priv_recordState("textTrack", textTrack);
+        const textTrack = this._priv_languageManager
+          .getChosenTextTrack(this._priv_currentPeriod);
+        this._priv_triggerContentEvent("textTrack", textTrack);
       }
     }
   }
 
   /**
-   * Called each time a representation changes.
+   * Triggered each times a new Representation is considered by the Stream.
+   *
+   * Store given Representation and emit it if from the current Period.
+   *
    * @param {Object} obj
    * @param {string} obj.type
    * @param {Object} obj.representation
@@ -1777,17 +1891,21 @@ class Player extends EventEmitter<any> {
 
     if (period != null && this._priv_currentPeriod === period) {
       if (type === "video") {
-        this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
+        this._priv_triggerContentEvent("videoBitrate", bitrate != null ? bitrate : -1);
       } else if (type === "audio") {
-        this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
+        this._priv_triggerContentEvent("audioBitrate", bitrate != null ? bitrate : -1);
       }
     }
   }
 
   /**
-   * @param {Object} obj
-   * @param {string} type
-   * @param {number|undefined} bitrate
+   * Triggered each time a bitrate estimate is calculated.
+   *
+   * Emit it.
+   *
+   * @param {Object} value
+   * @param {string} value.type
+   * @param {number|undefined} value.bitrate
    */
   private _priv_onBitrateEstimationChange({
     type,
@@ -1800,17 +1918,21 @@ class Player extends EventEmitter<any> {
       assert(type != null);
       assert(bitrate != null);
     }
-    this._priv_recordState("bitrateEstimation", { type, bitrate });
+    this._priv_triggerContentEvent("bitrateEstimation", { type, bitrate });
   }
 
   /**
-   * Called each time the player alternates between play and pause.
+   * Triggered each time the videoElement alternates between play and pause.
+   *
+   * Emit the info through the right Subject.
+   *
    * @param {Boolean} isPlaying
    */
   private _priv_onPlayPauseNext(isPlaying : boolean) : void {
     if (!this.videoElement) {
       throw new Error("Disposed player");
     }
+
     const videoElement = this.videoElement;
     if (!videoElement.ended) {
       this._priv_playing$.next(isPlaying);
@@ -1818,7 +1940,10 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Called each time a textTrack is added to the video DOM Element.
+   * Triggered each time a textTrack is added to the video DOM Element.
+   *
+   * Trigger the right Player Event.
+   *
    * @param {Array.<TextTrackElement} tracks
    */
   private _priv_onNativeTextTracksNext(tracks : TextTrack[]) : void {
@@ -1826,8 +1951,11 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Called each time the player state updates.
-   * @param {string} s
+   * Triggered each time the player state updates.
+   *
+   * Trigger the right Player Event.
+   *
+   * @param {string} newState
    */
   private _priv_setPlayerState(newState : string) : void {
     if (this.state !== newState) {
@@ -1838,7 +1966,10 @@ class Player extends EventEmitter<any> {
   }
 
   /**
-   * Called each time a new clock tick object is emitted.
+   * Triggered each time a new clock tick object is emitted.
+   *
+   * Trigger the right Player Event
+   *
    * @param {Object} clockTick
    */
   private _priv_triggerTimeChange(clockTick : IClockTick) : void {
@@ -1864,37 +1995,6 @@ class Player extends EventEmitter<any> {
     }
 
     this.trigger("positionUpdate", positionData);
-  }
-
-  private _priv_onCurrentPeriodChange(period : Period|null) : void {
-    this._priv_currentPeriod = period;
-    this._priv_recordState("period", period);
-
-    if (period == null) {
-      return;
-    }
-
-    // Emit events
-    if (this._priv_languageManager) {
-      const audioTrack = this._priv_languageManager.getChosenAudioTrack();
-      const textTrack = this._priv_languageManager.getChosenTextTrack();
-
-      this._priv_recordState("audioTrack", audioTrack);
-      this._priv_recordState("textTrack", textTrack);
-    }
-
-    const activeAudioRepresentations = this.getCurrentRepresentations();
-    if (activeAudioRepresentations && activeAudioRepresentations.audio != null) {
-      const bitrate = activeAudioRepresentations.audio.bitrate;
-      this._priv_recordState("audioBitrate", bitrate != null ? bitrate : -1);
-    }
-
-    const activeVideoRepresentations = this.getCurrentRepresentations();
-    if (activeVideoRepresentations && activeVideoRepresentations.video != null) {
-      const bitrate = activeVideoRepresentations.video.bitrate;
-      this._priv_recordState("videoBitrate", bitrate != null ? bitrate : -1);
-    }
-
   }
 }
 

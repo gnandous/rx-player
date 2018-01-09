@@ -25,7 +25,8 @@ import {
 } from "./text";
 import ICustomTimeRanges from "./time_ranges";
 
-export const BUFFER_TYPES = ["audio", "video", "text", "image"];
+export const BUFFER_TYPES : SupportedBufferTypes[] =
+  ["audio", "video", "text", "image"];
 export type SupportedBufferTypes = "audio"|"video"|"text"|"image";
 
 export type SourceBufferOptions =
@@ -47,20 +48,6 @@ interface ICreatedSourceBuffer<T> {
 
 type ICreatedNativeSourceBuffer =
   ICreatedSourceBuffer<ArrayBuffer|ArrayBufferView>;
-
-/**
- * Adds a SourceBuffer to the MediaSource.
- * @param {MediaSource} mediaSource
- * @param {string} codec
- * @returns {SourceBuffer}
- */
-function createNativeQueuedSourceBuffer(
-  mediaSource : MediaSource,
-  codec : string
-) : QueuedSourceBuffer<ArrayBuffer|ArrayBufferView> {
-  const sourceBuffer = mediaSource.addSourceBuffer(codec);
-  return new QueuedSourceBuffer(sourceBuffer);
-}
 
 /**
  * Allows to easily create and dispose SourceBuffers.
@@ -128,6 +115,13 @@ export default class SourceBufferManager {
     return !!this._initializedCustomSourceBuffers[bufferType];
   }
 
+  /**
+   * Returns the created QueuedSourceBuffer for the given type.
+   * Throws if no QueuedSourceBuffer were created for the given type.
+   *
+   * @param {string} bufferType
+   * @returns {QueuedSourceBuffer}
+   */
   public get(bufferType : SupportedBufferTypes) : QueuedSourceBuffer<any> {
     if (shouldHaveNativeSourceBuffer(bufferType)) {
       const sourceBufferInfos = this._initializedNativeSourceBuffers[bufferType];
@@ -146,6 +140,8 @@ export default class SourceBufferManager {
 
   /**
    * Creates a new QueuedSourceBuffer for the given buffer type.
+   * Reuse an already created one if a QueuedSourceBuffer for the given type
+   * already exists. TODO Throw or abort old one instead?
    * @param {string} bufferType
    * @param {string} codec
    * @param {Object} [options={}]
@@ -160,7 +156,7 @@ export default class SourceBufferManager {
       const memorizedSourceBuffer = this._initializedNativeSourceBuffers[bufferType];
       if (memorizedSourceBuffer) {
         if (memorizedSourceBuffer.codec !== codec) {
-          log.info(
+          log.warn(
             "reusing native SourceBuffer with codec", memorizedSourceBuffer.codec,
             "for codec", codec
           );
@@ -182,13 +178,8 @@ export default class SourceBufferManager {
       ._initializedCustomSourceBuffers[bufferType];
 
     if (memorizedCustomSourceBuffer) {
-      log.info("aborting a previous custom SourceBuffer for the type", bufferType);
-      try {
-        memorizedCustomSourceBuffer.sourceBuffer.abort();
-      } catch (e) {
-        log.warn("failed to abort a SourceBuffer:", e);
-      }
-      delete this._initializedCustomSourceBuffers[bufferType];
+      log.info("reusing a previous custom SourceBuffer for the type", bufferType);
+      return memorizedCustomSourceBuffer.sourceBuffer;
     }
 
     if (bufferType === "text") {
@@ -223,12 +214,12 @@ export default class SourceBufferManager {
    * Dispose of the active SourceBuffer for the given type.
    * @param {string} bufferType
    */
-  public dispose(bufferType : SupportedBufferTypes) : void {
+  public disposeSourceBuffer(bufferType : SupportedBufferTypes) : void {
     if (shouldHaveNativeSourceBuffer(bufferType)) {
       const memorizedNativeSourceBuffer = this
         ._initializedNativeSourceBuffers[bufferType];
 
-      if (!memorizedNativeSourceBuffer) {
+      if (memorizedNativeSourceBuffer == null) {
         return;
       }
 
@@ -244,7 +235,7 @@ export default class SourceBufferManager {
       const memorizedSourceBuffer = this
         ._initializedCustomSourceBuffers[bufferType];
 
-      if (!memorizedSourceBuffer) {
+      if (memorizedSourceBuffer == null) {
         return;
       }
 
@@ -263,14 +254,28 @@ export default class SourceBufferManager {
 
   /**
    * Dispose of all QueuedSourceBuffer created on this SourceBufferManager.
-   * TODO better code?
    */
   public disposeAll() {
-    this.dispose("audio");
-    this.dispose("video");
-    this.dispose("text");
-    this.dispose("image");
+    BUFFER_TYPES.forEach((bufferType : SupportedBufferTypes) => {
+      if (this.has(bufferType)) {
+        this.disposeSourceBuffer(bufferType);
+      }
+    });
   }
+}
+
+/**
+ * Adds a SourceBuffer to the MediaSource.
+ * @param {MediaSource} mediaSource
+ * @param {string} codec
+ * @returns {SourceBuffer}
+ */
+function createNativeQueuedSourceBuffer(
+  mediaSource : MediaSource,
+  codec : string
+) : QueuedSourceBuffer<ArrayBuffer|ArrayBufferView> {
+  const sourceBuffer = mediaSource.addSourceBuffer(codec);
+  return new QueuedSourceBuffer(sourceBuffer);
 }
 
 /**

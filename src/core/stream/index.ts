@@ -421,6 +421,7 @@ export default function Stream({
       speedManager$,
       stallingManager$
     ).finally(() => {
+      // clean-up every created SourceBuffers
       sourceBufferManager.disposeAll();
     });
   }

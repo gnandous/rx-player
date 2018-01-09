@@ -4,21 +4,19 @@
 
 To be able to play a content, the player has to be able to download chunks of media data - called segments - and has to push them to SourceBuffers.
 
-In the RxPlayer, it is the role of the _Buffers_ to do all of those tasks.
+In the RxPlayer, it is the role of the _Buffers_ to do all of those tasks. The _BufferHandler_ is a part of the Stream which dynamically creates and remove _Buffers_.
 
-The BufferHandler is a part of the Stream which dynamically creates and remove _Buffers_.
-
-Basically, it:
+Basically, the _Buffer Handler_:
   - dynamically creates various SourceBuffers depending on the needs of the given content
-  - create and destroy _Buffers_ as the content plays
+  - create and destroy _Buffers_ linked to these SourceBuffers as the content plays
 
-## Multiple type handling
+## Multiple types handling
 
 More often than not, content are divised into multiple "types": "audio", "video" or "text" segments, for example. They are often completely distinct in a manifest and as such, have to be downloaded and decoded separately.
 
-For a separation between "audio" and "video" contents, we need to use two separate SourceBuffers. For other types, such as "text" and "image", we copy this behavior by creating  custom SourceBuffers adapted to these type of contents.
+Each type has its own _SourceBuffer_. For "audio"/"video" contents, we use regular _MSE_ SourceBuffers. For any other types, such as "text" and "image", we defined custom SourceBuffers implementation adapted to these type of contents.
 
-We then create a different Buffer for each one of them. Each will progressively download and push content of their respective type to their respective SourceBuffer:
+We then create a different Buffer for each type. Each will progressively download and push content of their respective type to their respective SourceBuffer:
 ```
 - AUDIO BUFFER _
 |======================    |
@@ -38,7 +36,7 @@ _(the ``|`` sign delimits the temporal start and end of a Buffer, the ``=`` sign
 
 SourceBuffers created for the audio and/or video types are called _native SourceBuffers_. SourceBuffers for any other possible types (for example "text" and "image") are called "custom" SourceBuffers.
 
-Native SourceBuffers have several differences with custom ones, especially:
+Native SourceBuffers have several differences with the custom ones, especially:
   - They are managed by the browser where custom ones are implemented in JS. As such, they must obey to various browser rules, among which:
       1. They cannot be lazily created as the content plays. We have to initialize all native SourceBuffers beforehand.
       2. They have to be linked to a specific codec.
@@ -51,14 +49,14 @@ Due to these differences, native SourceBuffers are often managed in a less permi
   - They will be created at the very start of the content
   - An error coming from one of them will lead us to completely stop the content on a fatal error
 
-## Period Buffers
+## PeriodBuffers
 
 The DASH transport protocol has a concept called _Period_. Simply put, it allows to set various types of content successively in the same manifest.
 
 For example, you could have a manifest describing a live content with chronologically:
- - an english TV Show
- - an old italian film with subtitles
- - an American film with closed captions.
+ 1. an english TV Show
+ 2. an old italian film with subtitles
+ 3. an American film with closed captions.
 
 Example:
 ```
@@ -67,11 +65,11 @@ Example:
         TV Show               Italian Film            American film
 ```
 
-Those contents are drastically differents (they have different languages, the american film might have more available bitrates than the old italian one).
+Those contents are drastically different (they have different languages, the american film might have more available bitrates than the old italian one).
 
 Moreover, even a library user might want to be able to know when the italian film is finished, to report about it immediately in a graphical interface.
 
-As such, they have to be considered separately, as periods:
+As such, they have to be considered separately:
 ```
         Period 1                Period 2                Period 3
 08h05              09h00                       10h30                now
@@ -79,31 +77,36 @@ As such, they have to be considered separately, as periods:
         TV Show               Italian Film            American film
 ```
 
-To manage optimally this complex but common usecase, a new concept has been put in place in the RxPlayer: _Period Buffers_.
+In the RxPlayer, we create one _Buffer_ per Period **and** per type. Those are called _PeriodBuffers_.
 
-_Period Buffers_ are automatically created/destroyed during playback. The job of a single _Period Buffer_ is to process and download optimally the content linked to a single _Period_:
+_PeriodBuffers_ are automatically created/destroyed during playback. The job of a single _PeriodBuffer_ is to process and download optimally the content linked to a single _Period_ and to a single type:
 ```
-      PERIOD BUFFER
+- VIDEO BUFFER -
+
+     PERIOD BUFFER
 08h05              09h00
   |=========         |
+        TV Show
+
+
+- AUDIO BUFFER -
+
+     PERIOD BUFFER
+08h05              09h00
+  |=============     |
+        TV Show
+
+
+- TEXT BUFFER -
+
+     PERIOD BUFFER
+08h05              09h00
+  |======            |
         TV Show
 ```
 
 
-To allow smooth transitions between them, we also might want to preload content defined by a subsequent _Period_ once we lean towards the end of the content described by the previous one. Thus, multiple _Period Buffers_ might be active at the same time:
-
-```
-     PERIOD BUFFER 1        PERIOD BUFFER 2         PERIOD BUFFER 3
-08h05              09h00                       10h30                now
-  |=============     |=================          |================   |
-        TV Show               Italian Film            American film
-```
-
-### Implementation
-
-The Stream entirely manages those _Period Buffers_.
-
-Each of these are created for a single type of buffers (e.g. _video_, _text_ or _audio_ content). Which means that for a _Period_ having those three types of content, three _Period Buffers_ will be created:
+To allow smooth transitions between them, we also might want to preload content defined by a subsequent _Period_ once we lean towards the end of the content described by the previous one. Thus, multiple _PeriodBuffers_ might be active at the same time:
 
 ```
 +----------------------------   AUDIO   ----------------------------------+
@@ -130,13 +133,14 @@ Each of these are created for a single type of buffers (e.g. _video_, _text_ or 
 |         TV Show               Italian Film            American film     |
 +-------------------------------------------------------------------------+
 ```
-_Note: Behind the scene, those Period Buffers rely mainly on RxPlayer's Buffers to download content_
 
-The creation/destruction of _Period Buffers_ by the Stream is actually done in a very precize and optimal way, which gives a higher priority to immediate content.
+### Multi-Period management
+
+The creation/destruction of _PeriodBuffers_ by the Stream is actually done in a very precize and optimal way, which gives a higher priority to immediate content.
 
 To better grasp how it works, let's imagine a regular use-case, with two periods for a single type of Buffer:
 
-Let's say that the _Period Buffer_ for the first _Period_ (named P1) is currently
+Let's say that the _PeriodBuffer_ for the first _Period_ (named P1) is currently
 actively downloading segments (the "^" sign is the current position):
 ```
    P1
@@ -151,7 +155,7 @@ Once P1 is full (it has no segment left to download):
    ^
 ```
 
-We will be able to create a new _Period Buffer_, P2, for the second _Period_:
+We will be able to create a new _PeriodBuffer_, P2, for the second _Period_:
 ```
    P1     P2
 |======|      |
@@ -192,14 +196,14 @@ _Note: Of course, if the segments previously downloaded by P2 are not in the
 wanted user settings (example: the language has been switched since then),
 those segments will be re-downloaded._
 
-When the current position go ahead of a _Period Buffer_ (here ahead of P1):
+When the current position go ahead of a _PeriodBuffer_ (here ahead of P1):
 ```
    P1     P2
 |======|===   |
         ^
 ```
 
-This _Period Buffer_ is destroyed to free up ressources:
+This _PeriodBuffer_ is destroyed to free up ressources:
 ```
           P2
        |===   |
@@ -208,14 +212,14 @@ This _Period Buffer_ is destroyed to free up ressources:
 
 ----
 
-When the current position goes behind the first currently defined _Period Buffer_:
+When the current position goes behind the first currently defined _PeriodBuffer_:
 ```
           P2
        |===   |
     ^
 ```
 
-Then we destroy all previous _Period Buffers_ and [re-]create the one needed:
+Then we destroy all previous _PeriodBuffers_ and [re-]create the one needed:
 ```
    P1
 |======|
@@ -232,7 +236,7 @@ its already-pushed segments:
 
 ----
 
-For multiple types of Buffers (example: _audio_ and _video_) the same logic is repeated (and separated) as many times. An _audio_ _Period Buffer_ will not influence a _video_ one:
+For multiple types of Buffers (example: _audio_ and _video_) the same logic is repeated (and separated) as many times. An _audio_ _PeriodBuffer_ will not influence a _video_ one:
 ```
 ---------------------------   AUDIO   --------------------------------
         P1               P2     
@@ -250,17 +254,17 @@ For multiple types of Buffers (example: _audio_ and _video_) the same logic is r
      ^
 ```
 
-At the end, we should only have _Period Buffer[s]_ for consecutive Period[s]:
+At the end, we should only have _PeriodBuffer[s]_ for consecutive Period[s]:
   - The first chronological one is the one currently seen by the user.
   - The last chronological one is the only one downloading content.
-  - In between, we only have full consecutive _Period Buffers_.
+  - In between, we only have full consecutive _PeriodBuffers_.
 
 ### Communication with the API
 
-The Stream communicates to the API about creations and destructions of _Period Buffers_ respectively through ``"periodBufferReady"`` and ``"periodBufferCleared"`` events.
+The Stream communicates to the API about creations and destructions of _PeriodBuffers_ respectively through ``"periodBufferReady"`` and ``"periodBufferCleared"`` events.
 
-In the RxPlayer, the API will then keep track of which _Period Buffer_ is currently created, for which type of buffer. This facilitates:
-  - language switching on audio and text contents for any created _Period Buffer_.
+In the RxPlayer, the API will then keep track of which _PeriodBuffer_ is currently created, for which type of buffer. This facilitates:
+  - language switching on audio and text contents for any created _PeriodBuffer_.
   - reporting of it to the library user.
 
 ```
