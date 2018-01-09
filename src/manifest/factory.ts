@@ -55,7 +55,6 @@ export default function createManifest(
     period.adaptations = checkAdaptations(period.adaptations);
     return period;
   });
-  debugger;
   const manifest = new Manifest(manifestObject as any);
   manifest.addSupplementaryTextAdaptations(externalTextTracks);
   manifest.addSupplementaryImageAdaptations(externalImageTracks);

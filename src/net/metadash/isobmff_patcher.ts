@@ -34,402 +34,356 @@ function Atom(name : string, buff : Uint8Array) : Uint8Array {
   return concat(itobe4(len), strToBytes(name), buff);
 }
 
-function ord(string: string) {
-  const str = string + "";
-  const code = str.charCodeAt(0);
-  if (code >= 0xD800 && code <= 0xDBFF) {
-    const hi = code;
-    if (str.length === 1) {
-      return code;
-    }
-    const low = str.charCodeAt(1);
-    return ((hi - 0xD800) * 0x400) + (low - 0xDC00) + 0x10000;
-  }
-  if (code >= 0xDC00 && code <= 0xDFFF) {
-    return code;
-  }
-  return code;
-}
-
-function chr(codePt: any): string {
-  if (codePt > 0xFFFF) {
-    const modCodePt = codePt - 0x10000;
-    return String.fromCharCode(
-        (modCodePt >> 10) + 0xD800,
-        (modCodePt & 0x3FF) + 0xDC00
-      );
-  }
-  return String.fromCharCode(codePt);
-}
-
 export default class BoxPatchers {
     private offset: number;
     private lmsg: boolean;
-    private is_ttml = false;
-    private seg_nr: number|undefined;
-    private top_level_boxes_to_parse: string[] = [];
-    private composite_boxes_to_parse: string[] = [];
-    private size_change = 0;
-    private tfdt_value: number;
+    private isTtml = false;
+    private segNr: number|undefined;
+    private topLevelBoxesToParse: string[] = [];
+    private compositeBoxesToParse: string[] = [];
+    private sizeChange = 0;
+    private tfdtValue: number;
     private duration: number;
-    private ttml_size: number;
+    private ttmlSize: number;
     private data: Uint8Array;
 
     constructor(
         data: Uint8Array,
         lmsg: boolean,
-        is_ttml: boolean,
+        isTtml: boolean,
         offset?: number,
-        seg_nr?: number
+        segNr?: number
     ){
         this.data = data;
-        this.top_level_boxes_to_parse = ["styp", "sidx", "moof", "mdat"];
-        this.composite_boxes_to_parse = ["moof", "traf"];
-        this.seg_nr = seg_nr;
+        this.topLevelBoxesToParse = ["styp", "sidx", "moof", "mdat"];
+        this.compositeBoxesToParse = ["moof", "traf"];
+        this.segNr = segNr;
         this.offset = offset || 0;
         this.lmsg = lmsg || false;
-        this.is_ttml = is_ttml || false;
-        if(this.is_ttml){
-            this.data = this.find_and_process_mdat(this.data);
+        this.isTtml = isTtml || false;
+        if(this.isTtml){
+            this.data = this.findAndProcessMdat(this.data);
         }
     }
 
-      check_box(data: Uint8Array){
-        const size = be4toi(data, 0);
-        const boxtype = bytesToStr(data.subarray(4,8));
-        return {
-            size,
-            boxtype,
-        };
+    /**
+     * Get size and boxtype from current box
+     * @param {Uint8Array} data
+     */
+    checkBox(data: Uint8Array){
+      const size = be4toi(data, 0);
+      const boxtype = bytesToStr(data.subarray(4,8));
+      return {
+        size,
+        boxtype,
+      };
+    }
+
+    /**
+     * Triggers box processing
+     */
+    filter(){
+      let output = new Uint8Array(0);
+      let pos = 0;
+      while(pos < this.data.length){
+        const { size, boxtype } = this.checkBox(this.data.subarray(pos, pos + 8));
+        const boxdata = this.data.subarray(pos, pos + size);
+        const concatData = (this.topLevelBoxesToParse
+          .indexOf(boxtype) >= 0) ?
+            this.filterBox(boxtype, boxdata, output.length) :
+            boxdata;
+        output = concat(output, concatData);
+        pos += size;
       }
+      return output;
+    }
 
-      filter(){
-        let output = new Uint8Array(0);
-        let pos = 0;
-        while(pos < this.data.length){
-          const { size, boxtype } = this.check_box(this.data.subarray(pos, pos+8));
-          const boxdata = this.data.subarray(pos, pos+size);
-          const concatData = (this.top_level_boxes_to_parse
-            .filter((name) => name === boxtype).length !== 0) ?
-              this.filter_box(boxtype, boxdata, output.length) :
-              boxdata;
-          output = concat(output, concatData);
-          pos += size;
-        }
-        return output;
-      }
-
-      filter_box(
-        boxtype: string,
-        data: Uint8Array,
-        file_pos: number,
-        _path?: string
-      ): Uint8Array{
-        let output = new Uint8Array(0);
-        const path = _path ? (_path + "." +boxtype) : boxtype;
-
-        if (this.composite_boxes_to_parse.filter((box) => box === boxtype).length !== 0){
-          output = data.subarray(0,8);
-          let pos = 8;
-          while(pos < data.length){
-            const {
-              size: child_size,
-              boxtype: child_box_type,
-            } = this.check_box(data.subarray(pos, pos+8));
-            const output_child_box =
-              this.filter_box(
-                child_box_type,
-                data.subarray(pos, pos+child_size),
-                file_pos+pos,
-                path
-              );
-            output = concat(output, output_child_box);
-            pos += child_size;
-          }
-          if(output.length !== data.length){
-            output = concat(itobe4(output.length), output.subarray(0,4));
-          }
-        } else {
-          switch(boxtype){
-            case "styp":
-              output = this.styp(data);
-              break;
-            case "tfhd":
-              output = this.tfhd(data);
-              break;
-            case "mfhd":
-              output = this.mfhd(data);
-              break;
-            case "trun":
-              output = this.trun(data);
-              break;
-            case "sidx":
-              output = this.sidx(data, true);
-              break;
-            case "tfdt":
-              output = this.tfdt(data);
-              break;
-            case "mdat":
-              output = data;
-              break;
-          }
-        }
-        return output;
-      }
-
-      /**
-       * Process styp and make sure lmsg presence follows the lmsg flag parameter.
-       * Add scte35 box if appropriate
-       * @param {Uint8Array} input
-       * @return {Uint8Array} patched box
-       */
-      styp(input: Uint8Array): Uint8Array {
-        const lmsg = this.lmsg;
-        const size = be4toi(input, 0);
+    /**
+     * Process specific box and its children
+     * @param {string} boxtype
+     * @param {Uint8Array} data
+     * @param {number} filePos
+     * @param {string} _path
+     */
+    filterBox(
+      boxtype: string,
+      data: Uint8Array,
+      filePos: number,
+      _path?: string
+    ): Uint8Array{
+      let output = new Uint8Array(0);
+      const path = _path ? (_path + "." + boxtype) : boxtype;
+      if (this.compositeBoxesToParse.indexOf(boxtype) >= 0){
+        output = data.subarray(0,8);
         let pos = 8;
-        const brands = [];
-        while (pos < size){
-            const brand = input.subarray(pos, pos+4);
-            if (bytesToStr(brand) !== "lmsg"){
-                brands.push(brand);
-            }
+        while(pos < data.length){
+          const {
+            size: childSize,
+            boxtype: childBoxType,
+          } = this.checkBox(data.subarray(pos, pos + 8));
+          const outputChildBox =
+            this.filterBox(
+              childBoxType,
+              data.subarray(pos, pos + childSize),
+              filePos+pos,
+              path
+            );
+          output = concat(output, outputChildBox);
+          pos += childSize;
+        }
+        if(output.length !== data.length){
+          output = concat(itobe4(output.length), output.subarray(4, output.length));
+        }
+      } else {
+        switch(boxtype){
+          case "styp":
+            output = this.styp(data);
+            break;
+          case "tfhd":
+            output = this.tfhd(data);
+            break;
+          case "mfhd":
+            output = this.mfhd(data);
+            break;
+          case "trun":
+            output = this.trun(data);
+            break;
+          case "sidx":
+            output = this.sidx(data, false);
+            break;
+          case "tfdt":
+            output = this.tfdt(data);
+            break;
+          case "mdat":
+            output = data;
+            break;
+        }
+      }
+      return output;
+    }
+
+    /**
+     * Process styp and make sure lmsg presence follows the lmsg flag parameter.
+     * Add scte35 box if appropriate
+     * @param {Uint8Array} input
+     * @return {Uint8Array} patched box
+     */
+    styp(input: Uint8Array): Uint8Array {
+      const lmsg = this.lmsg;
+      const size = be4toi(input, 0);
+      let pos = 8;
+      const brands = [];
+      while (pos < size){
+          const brand = input.subarray(pos, pos + 4);
+          if (bytesToStr(brand) !== "lmsg"){
+              brands.push(brand);
+          }
+          pos += 4;
+      }
+      if (lmsg){
+        brands.push(strToBytes("lmsg"));
+      }
+      const dataSize = brands.length * 4;
+      const data = new Uint8Array(dataSize);
+      for (let i = 0; i < brands.length; i++){
+        data.set(brands[i], i*4);
+      }
+      return Atom("styp", data);
+    }
+
+    /**
+     * Process tfhd (assuming that we know the ttml size size).
+     * @param {Uint8Array} input
+     * @return {Uint8Array} patched box
+     */
+    tfhd(input: Uint8Array): Uint8Array {
+      let output = new Uint8Array(0);
+      if (!this.isTtml){
+        return input;
+      }
+      const tfFlags = be4toi(input.subarray(8,12), 0) & 0xFFFFFF;
+      let pos = 16;
+      if(tfFlags & 0x01) {
+        throw new Error("base-data-offset-present not supported in ttml segments");
+      }
+      if(tfFlags & 0x02) {
+        pos += 4;
+      }
+      if((tfFlags & 0x08) === 0) {
+        throw new Error("Cannot handle ttml segments with no default_sample_duration");
+      } else {
+        pos += 4;
+      }
+      if(tfFlags && 0x10) {
+        output = concat(input.subarray(0, pos), itobe4(this.ttmlSize));
+      }
+      else{
+        throw new Error(
+          "Cannot handle ttml segments if default_sample_size_offset is absent"
+        );
+      }
+      output = concat(output, input.subarray(pos, input.length));
+      return output;
+    }
+
+    /**
+     * Process mfhd box and set segmentNumber if requested.
+     * @param {Uint8Array} input
+     * @return {Uint8Array} patched box
+     */
+    mfhd(input: Uint8Array): Uint8Array {
+      if(!this.segNr){
+        return input;
+      }
+      const prefix = input.subarray(0, 12);
+      const segNrByte = itobe4(this.segNr);
+      return concat(prefix, segNrByte);
+    }
+
+    /**
+     * Get total duration from trun.
+     * Fix offset if self.sizeChange is non-zero.
+     * @param {Uint8Array} input
+     * @return {Uint8Array} patched box
+     */
+    trun(input: Uint8Array): Uint8Array {
+      const flags = be4toi(input, 8) & 0xFFFFFF;
+      const sampleCount = be4toi(input, 16);
+      let pos = 16;
+      let dataOffsetPresent = false;
+      // Data offset present
+      if (flags & 0x1) {
+        dataOffsetPresent = true;
+        pos += 4;
+      }
+      // First sample flags present
+      if (flags & 0x4){
+          pos += 4;
+      }
+      const sampleDurationPresent = flags & 0x100;
+      const sampleSizePresent = flags & 0x200;
+      const sampleFlagsPresent = flags & 0x400;
+      const sampleCompTimePresent = flags & 0x800;
+      let duration = 0;
+      for (let i = 0; i<sampleCount; i++){
+        if (sampleDurationPresent){
+            duration += be4toi(input, pos);
             pos += 4;
         }
-        if (lmsg){
-          brands.push(strToBytes("lmsg"));
+        if (sampleSizePresent){
+          pos += 4;
         }
-        const data_size = brands.length * 4;
-        const data = new Uint8Array(data_size);
-
-        for (let i = 0; i < brands.length; i++){
-          data.set(brands[i], i*4);
-        }
-        return Atom("styp", data);
+        if (sampleFlagsPresent){
+            pos += 4;
       }
+        if (sampleCompTimePresent){
+            pos += 4;
+        }
+      }
+      this.duration = duration;
+      // Modify data_offset
+      let output = input.subarray(0, 16);
+      if (dataOffsetPresent && this.sizeChange > 0){
+        let offset = be4toi(input, 16);
+        offset += this.sizeChange;
+        output = concat(output, itobe4(offset)); // func
+      }
+      else {
+        output = concat(output, input.subarray(16,20));
+      }
+      output = concat(output, input.subarray(20, input.length));
+      return output;
+    }
 
-      /**
-       *   "Process tfhd (assuming that we know the ttml size size)."
-       */
-      tfhd(input: Uint8Array): Uint8Array {
-        let output = new Uint8Array(0);
-        if (!this.is_ttml){
-          return input;
-        }
-        const tf_flags = be4toi(input.subarray(8,12), 0) & 0xFFFFFF; // good func ?
-        let pos = 16;
-        if(tf_flags & 0x01) {
-          throw new Error("base-data-offset-present not supported in ttml segments");
-        }
-        if(tf_flags & 0x02) {
-          pos += 4;
-        }
-        if((tf_flags & 0x08) === 0) {
-          throw new Error("Cannot handle ttml segments with no default_sample_duration");
+    /**
+     * Process sidx data and add to output.
+     * @param {Uint8Array} input
+     * @param {boolean} keepSidx
+     */
+    sidx(input: Uint8Array, keepSidx: boolean): Uint8Array {
+      let output = new Uint8Array(0);
+      if(!keepSidx) {
+        return output;
+      }
+      let earliestPresentationTime;
+      let firstOffset;
+      const version = input[8];
+      const timescale = be4toi(input, 16);
+      if(version === 0) {
+        // Changing sidx version to 1
+        const size = be4toi(input, 0);
+        const sidxSizeExpansion = 8;
+        output = concat(
+          itobe4(size + sidxSizeExpansion),
+          input.subarray(4,8),
+          new Uint8Array([1]),
+          input.subarray(9, 20));
+        earliestPresentationTime = be4toi(input, 20);
+        firstOffset = be4toi(input, 24);
+      }
+      else {
+        output = input.subarray(0, 20);
+        earliestPresentationTime = be8toi(input, 20);
+        firstOffset = be8toi(input, 28);
+      }
+      const newPresentationTime = earliestPresentationTime + timescale * this.offset;
+      output = concat(output, itobe8(newPresentationTime), itobe8(firstOffset));
+      const suffixOffset = version === 0 ? 28 : 36;
+      output = concat(output, input.subarray(suffixOffset, input.length));
+      return output;
+    }
+
+    /**
+     * Generate new timestamps for tfdt and change size of boxes above if needed.
+     * Try to keep in 32 bits if possible.
+     * @param input
+     */
+    tfdt(input: Uint8Array): Uint8Array{
+      const version = input[8];
+      const tfdtOffset = this.offset;
+      let newBaseMediaDecodeTime;
+      let output = new Uint8Array(0);
+      // 32-bit baseMediaDecodeTime
+      if (version === 0){
+        const baseMediaDecodeTime = be4toi(input, 12);
+        newBaseMediaDecodeTime = baseMediaDecodeTime + tfdtOffset;
+        if (newBaseMediaDecodeTime < 4294967296){
+          output = concat(input.subarray(0,12), itobe4(newBaseMediaDecodeTime));
         } else {
-          pos += 4;
-        }
-        if(tf_flags && 0x10) {
-          output = concat(input.subarray(0, pos), itobe4(this.ttml_size));
-        }
-        else{
-          throw new Error(
-            "Cannot handle ttml segments if default_sample_size_offset is absent"
+          // Forced to change to 64-bit tfdt.
+          this.sizeChange = 4;
+          output = concat(
+            itobe4(be4toi(input, 0) + this.sizeChange),
+            input.subarray(4,8),
+            new Uint8Array([1]),
+            input.subarray(9, 12),
+            itobe8(newBaseMediaDecodeTime)
           );
         }
-        output = concat(output, input.subarray(pos, input.length));
-        return output;
+      } else { // 64-bit
+        const baseMediaDecodeTime = be8toi(input, 12);
+        newBaseMediaDecodeTime = baseMediaDecodeTime + tfdtOffset;
+        output = concat(input.subarray(0,12), itobe8(newBaseMediaDecodeTime));
       }
-
-      /**
-       * Process mfhd box and set segmentNumber if requested.
-       */
-      mfhd(input: Uint8Array): Uint8Array {
-        if(!this.seg_nr){
-          return input;
-        }
-        const prefix = input.subarray(0, 12);
-        const seg_nr_byte = itobe4(this.seg_nr); // good fun ?
-        return concat(prefix, seg_nr_byte);
-      }
-
-      /**
-       * Get total duration from trun.
-       * Fix offset if self.size_change is non-zero.
-       */
-      trun(input: Uint8Array): Uint8Array {
-        const flags = be4toi(input, 8) & 0xFFFFFF;
-        const sample_count = be4toi(input, 16);
-        let pos = 16;
-        let data_offset_present = false;
-        // Data offset present
-        if (flags & 0x1) {
-          data_offset_present = true;
-          pos += 4;
-        }
-        // First sample flags present
-        if (flags & 0x4){
-            pos += 4;
-        }
-        const sample_duration_present = flags & 0x100;
-        const sample_size_present = flags & 0x200;
-        const sample_flags_present = flags & 0x400;
-        const sample_comp_time_present = flags & 0x800;
-        let duration = 0;
-
-        for (let i = 0; i<sample_count; i++){
-          if (sample_duration_present){
-              duration += be4toi(input, pos);
-              pos += 4;
-          }
-          if (sample_size_present){
-            pos += 4;
-          }
-          if (sample_flags_present){
-              pos += 4;
-        }
-          if (sample_comp_time_present){
-              pos += 4;
-          }
-        }
-
-        this.duration = duration;
-
-        // Modify data_offset
-        let output = input.subarray(0, 16);
-
-        if (data_offset_present && this.size_change > 0){
-          let offset = be4toi(input, 16);
-          offset += this.size_change;
-          output = concat(output, itobe4(offset)); // func
-        }
-        else {
-          output = concat(output, input.subarray(16,20));
-        }
-        output = concat(output, input.subarray(20, input.length));
-        return output;
-      }
-
-      /**
-       * Process sidx data and add to output.
-       */
-      sidx(input: Uint8Array, keep_sidx: boolean): Uint8Array {
-        let output = new Uint8Array(0);
-        if(!keep_sidx) {
-          return output;
-        }
-        let earliest_presentation_time;
-        let first_offset;
-        const version = ord(input[8].toString());
-        const timescale = be4toi(input, 16);
-        if(version === 0) {
-            // Changing sidx version to 1
-            const size = be4toi(input, 0);
-            const sidx_size_expansion = 8;
-            output = concat(output,itobe4(size+sidx_size_expansion)); // func
-            output = concat(output, input.subarray(4,8));
-            output = concat(output, strToBytes(chr(1)));
-            output = concat(output, input.subarray(9, 20));
-            earliest_presentation_time = be4toi(input, 20);
-            first_offset = be4toi(input, 24);
-        }
-        else {
-          output = concat(output, input.subarray(0, 20));
-          earliest_presentation_time = be8toi(input, 20);
-          first_offset = be8toi(input, 28);
-        }
-        const new_presentation_time = earliest_presentation_time + timescale*this.offset;
-        output = concat(output, itobe8(new_presentation_time));
-        output = concat(output, itobe8(first_offset));
-        const suffix_offset = version === 0 ? 28 : 36;
-        output = concat(output, input.subarray(suffix_offset, input.length));
-        return output;
-      }
-
-      /**
-       * Generate new timestamps for tfdt and change size of boxes above if needed.
-       * Try to keep in 32 bits if possible.
-       * @param input
-       */
-      tfdt(input: Uint8Array): Uint8Array{
-        const version = ord(input[8].toString());
-        const tfdt_offset = this.offset;
-        let output = new Uint8Array(0);
-        let new_base_media_decode_time;
-        // 32-bit baseMediaDecodeTime
-        if (version === 0){
-            const base_media_decode_time = be4toi(input, 12);
-            new_base_media_decode_time = base_media_decode_time + tfdt_offset;
-            if (new_base_media_decode_time < 4294967296){
-                output = concat(output,input.subarray(0,12));
-                output = concat(output, itobe4(new_base_media_decode_time));
-            } else {
-                // Forced to change to 64-bit tfdt.
-                this.size_change = 4;
-                output = concat(output, itobe4(be4toi(input, 0) + this.size_change));
-                output = concat(output, input.subarray(4,8));
-                output = concat(output, strToBytes(chr(1)));
-                output = concat(output, input.subarray(9, 12));
-                output = concat(output, itobe8(new_base_media_decode_time));
-            }
-        }
-        // 64-bit
-        else {
-          output = concat(output, input.subarray(0,12));
-          const base_media_decode_time = be8toi(input, 12);
-          new_base_media_decode_time = base_media_decode_time + tfdt_offset;
-          output = concat(output, itobe8(new_base_media_decode_time));
-        }
-        this.tfdt_value = new_base_media_decode_time;
-        return output;
-      }
-
-      /**
-       * Generate new timestamps for tfdt and change size of boxes above if needed.
-       * Note that the input output will be returned and can have another size.
-       */
-      tfdt_64bit(
-        input: Uint8Array,
-        _output: Uint8Array
-      ){
-        const version = ord(input[8].toString());
-        const tfdt_offset = this.offset;
-        let output = _output;
-        let base_media_decode_time;
-        // 32-bit baseMediaDecodeTime
-        if(version === 0){
-          this.size_change = 4;
-          output = concat(output, itobe4(be4toi(input, 0) + this.size_change));
-          output = concat(output, input.subarray(4,8));
-          output = concat(output, strToBytes(chr(1)));
-          output = concat(output, input.subarray(9, 12));
-          base_media_decode_time = be4toi(input, 12);
-        }
-        // 64-bit
-        else{
-          output = input.subarray(0,12);
-          base_media_decode_time = be8toi(input, 12);
-        }
-        const new_base_media_decode_time = base_media_decode_time + tfdt_offset;
-        output = concat(output, itobe8(new_base_media_decode_time));
-        this.tfdt_value = new_base_media_decode_time;
-        return output;
-      }
+      this.tfdtValue = newBaseMediaDecodeTime;
+      return output;
+    }
 
       /**
        * Update the ttml payload of mdat and its size.
        */
       // update_ttml_mdat(data: Uint8Array){
       //   const ttml_xml = data.subarray(8, data.length);
-      //   const ttml_out = adjust_ttml_content(ttml_xml, this.offset, this.seg_nr);
-      //   this.ttml_size = ttml_out.length;
-      //   const out_size = this.ttml_size + 8;
+      //   const ttml_out = adjust_ttml_content(ttml_xml, this.offset, this.segNr);
+      //   this.ttmlSize = ttml_out.length;
+      //   const out_size = this.ttmlSize + 8;
       //   return concat(itobe4(out_size), strToBytes("mdat"), strToBytes(ttml_out));
       // }
 
       /**
        * Change the ttml part of mdat and update mdat size. Return full new data.
        */
-      find_and_process_mdat(data: Uint8Array){
+      findAndProcessMdat(data: Uint8Array){
         // let pos = 0;
         // let output = new Uint8Array(0);
         // while (pos < data.length){
@@ -447,7 +401,7 @@ export default class BoxPatchers {
       }
 
       getTfdt(){
-        return this.tfdt_value;
+        return this.tfdtValue;
       }
 
       getDuration(){

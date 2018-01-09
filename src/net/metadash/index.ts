@@ -174,22 +174,23 @@ export default function(
            : new Uint8Array(response.responseData);
 
           const offset = representation.index.getTokenOffset() || 0;
-          const segmentData = new BoxPatcher(
-            responseData,
-            false,
-            false,
-            offset * segment.timescale
-          ).filter();
-          debugger;
+
           let nextSegments : INextSegmentsInfos[]|undefined;
           let segmentInfos : ISegmentTimingInfos;
 
           const indexRange = segment.indexRange;
           const sidxSegments =
-            parseSidx(segmentData, indexRange ? indexRange[0] : 0);
+            parseSidx(responseData, indexRange ? indexRange[0] : 0);
           if (sidxSegments) {
             nextSegments = sidxSegments;
           }
+
+          const segmentData = new BoxPatcher(
+            responseData,
+            false,
+            false,
+            offset * (init ? (init.timescale || segment.timescale) :  segment.timescale)
+          ).filter();
 
           if (segment.isInit) {
             segmentInfos = { time: -1, duration: 0 };
