@@ -182,8 +182,8 @@ export default class LanguageManager {
    *   2. If not found, the preferences
    */
   update() {
-    this._updateAudioTracks();
-    this._updateTextTracks();
+    this.updateAudioTrackChoices();
+    this.updateTextTrackChoices();
   }
 
   setPreferredAudioTrack(period : Period) {
@@ -464,68 +464,96 @@ export default class LanguageManager {
       }));
   }
 
-  // private _setAudioAdaptation(
-  //   periodItem : ILMPeriodItem,
-  //   adaptation : Adaptation|null
-  // ) {
-  //   if (periodItem.audio) {
-  //     this._audioChoiceMemory.set(periodItem.period, adaptation);
-  //     periodItem.audio.adaptation$.next(adaptation);
-  //   }
-  // }
-
-  private _updateAudioTracks() {
+  public updateAudioTrackChoices() {
     const preferredAudioTracks = this._preferredAudioTracks;
 
-    for (let i = 0; i < this._periods.length(); i++) {
-      const periodItem = this._periods.get(i);
-      if (periodItem.audio != null) {
-        const audioAdaptations = periodItem.period.adaptations.audio || [];
-        const chosenAudioAdaptation = this._audioChoiceMemory.get(periodItem.period);
-        if (
-          chosenAudioAdaptation === undefined ||
-          !isAudioAdaptationOptimal(
-            chosenAudioAdaptation, audioAdaptations, preferredAudioTracks)
-        ) {
-          const optimalAdaptation = findFirstOptimalAudioAdaptation(
-            audioAdaptations, preferredAudioTracks);
-
-          this._audioChoiceMemory.set(periodItem.period, optimalAdaptation);
-          periodItem.audio.adaptation$.next(optimalAdaptation);
-
-          // The array of active periods could have completely changed since
-          // then, restart the loop
-          i = -1;
-        }
+    const recursiveUpdateAudioTrack = (index : number) : void => {
+      if (index >= this._periods.length()) {
+        // we did all audio Buffers, exit
+        return;
       }
-    }
+
+      const periodItem = this._periods.get(index);
+      if (periodItem.audio == null) {
+        // No audio Buffer for this period, check next one
+        recursiveUpdateAudioTrack(index + 1);
+        return;
+      }
+
+      const {
+        period,
+        audio: audioItem,
+      } = periodItem;
+      const audioAdaptations = period.adaptations.audio || [];
+      const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
+
+      if (
+        chosenAudioAdaptation !== undefined &&
+        isAudioAdaptationOptimal(
+          chosenAudioAdaptation, audioAdaptations, preferredAudioTracks)
+      ) {
+        // Already best audio for this Buffer, check next one
+        recursiveUpdateAudioTrack(index + 1);
+        return;
+      }
+
+      const optimalAdaptation = findFirstOptimalAudioAdaptation(
+        audioAdaptations, preferredAudioTracks);
+
+      this._audioChoiceMemory.set(period, optimalAdaptation);
+      audioItem.adaptation$.next(optimalAdaptation);
+
+      // previous "next" call could have changed everything, start over
+      recursiveUpdateAudioTrack(0);
+    };
+
+    recursiveUpdateAudioTrack(0);
   }
 
-  private _updateTextTracks() {
+  public updateTextTrackChoices() {
     const preferredTextTracks = this._preferredTextTracks;
 
-    for (let i = 0; i < this._periods.length(); i++) {
-      const periodItem = this._periods.get(i);
-      if (periodItem.text != null) {
-        const textAdaptations = periodItem.period.adaptations.text || [];
-        const chosenTextAdaptation = this._textChoiceMemory.get(periodItem.period);
-        if (
-          chosenTextAdaptation === undefined ||
-          !isTextAdaptationOptimal(
-            chosenTextAdaptation, textAdaptations, preferredTextTracks)
-        ) {
-          const optimalAdaptation = findFirstOptimalTextAdaptation(
-            textAdaptations, preferredTextTracks);
-
-          this._textChoiceMemory.set(periodItem.period, optimalAdaptation);
-          periodItem.text.adaptation$.next(optimalAdaptation);
-
-          // The array of active periods could have completely changed since
-          // then, restart the loop
-          i = -1;
-        }
+    const recursiveUpdateTextTrack = (index : number) : void => {
+      if (index >= this._periods.length()) {
+        // we did all text Buffers, exit
+        return;
       }
-    }
+
+      const periodItem = this._periods.get(index);
+      if (periodItem.text == null) {
+        // No text Buffer for this period, check next one
+        recursiveUpdateTextTrack(index + 1);
+        return;
+      }
+
+      const {
+        period,
+        text: textItem,
+      } = periodItem;
+      const textAdaptations = period.adaptations.text || [];
+      const chosenTextAdaptation = this._textChoiceMemory.get(period);
+
+      if (
+        chosenTextAdaptation !== undefined &&
+        isTextAdaptationOptimal(
+          chosenTextAdaptation, textAdaptations, preferredTextTracks)
+      ) {
+        // Already best text for this Buffer, check next one
+        recursiveUpdateTextTrack(index + 1);
+        return;
+      }
+
+      const optimalAdaptation = findFirstOptimalTextAdaptation(
+        textAdaptations, preferredTextTracks);
+
+      this._textChoiceMemory.set(period, optimalAdaptation);
+      textItem.adaptation$.next(optimalAdaptation);
+
+      // previous "next" call could have changed everything, start over
+      recursiveUpdateTextTrack(0);
+    };
+
+    recursiveUpdateTextTrack(0);
   }
 }
 

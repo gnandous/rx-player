@@ -159,7 +159,11 @@ export default function BuffersHandler(
       .filter((period) : period is Period => !!period);
 
   return Observable.merge(
-    activePeriod$.map(period => EVENTS.activePeriodChanged(period)),
+    activePeriod$
+      .do((period : Period) => {
+        log.info("new active period", period);
+      })
+      .map(period => EVENTS.activePeriodChanged(period)),
     ...buffersArray
   );
 
