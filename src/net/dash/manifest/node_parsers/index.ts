@@ -264,7 +264,10 @@ export default function parseMPD(
     } else {
       let start : number;
       if (i === 0) {
-        start = availabilityStartTime == null ? 0 : availabilityStartTime;
+        start =
+          type === "dynamic" ?
+            (availabilityStartTime == null ? 0 : availabilityStartTime) :
+            0;
       } else {
         const prevPeriod = periods[i - 1];
         if (prevPeriod.duration != null) {

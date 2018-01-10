@@ -70,10 +70,10 @@ export function parseFromMetaDocument(
       .reduce((acc, val) =>
         Math.min(acc || 10, val || 10), 10
       )) || 10;
-    const tsbd = (parsedManifests.map(man => man.timeShiftBufferDepth)
+    const tsbd = (parsedManifests.map(man => man.duration)
       .reduce((acc, val) =>
-        Math.min(acc || 0, val || 0), 0
-      )) || 0;
+        Math.min(acc || Infinity, val || Infinity), Infinity
+      ));
     const playbackPosition = (Date.now() / 1000) - (documents.startTime || 0) - plg - spd;
     const elapsedLoops = Math.floor(playbackPosition / totalDuration);
     const timeOnLoop = playbackPosition % totalDuration;
@@ -111,19 +111,27 @@ export function parseFromMetaDocument(
     const firstStart = firstPeriodRef.duration ?
       newPeriods[0].start - firstPeriodRef.duration :
       firstPeriodRef.end;
+    if(firstStart && firstStart >= 0) {
+      newPeriods.splice(0, 0, {
+        adaptations: firstAdaptations,
+        duration: firstPeriodRef.duration,
+        id: "p" + Math.round(firstStart),
+        start: firstStart,
+      });
+    }
 
-      if(firstStart && firstStart >= 0) {
-        newPeriods.splice(0, 0, {
-          adaptations: firstAdaptations,
-          duration: firstPeriodRef.duration,
-          id: "p" + Math.round(firstStart),
-          start: firstStart,
-        });
-      }
-
-    // Last period may not present duration or end (live condition)
-    newPeriods[newPeriods.length-1].duration = undefined;
-    newPeriods[newPeriods.length-1].end = undefined;
+    // In case we may have one manifest, we have to add a supplementary period after
+    // last
+    const lastPeriodRef = newPeriods[1];
+    const lastAdaptations = lastPeriodRef.adaptations;
+    const lastStart = newPeriods[newPeriods.length - 1].end;
+    if(lastStart && lastStart >= 0) {
+      newPeriods.push({
+        adaptations: lastAdaptations,
+        id: "p" + Math.round(lastStart),
+        start: lastStart,
+      });
+    }
 
     const manifest = {
       availabilityStartTime: documents.startTime,
@@ -140,7 +148,7 @@ export function parseFromMetaDocument(
       profiles: "urn:mpeg:dash:profile:isoff-live:2011",
       periods: newPeriods,
       suggestedPresentationDelay: spd,
-      minimumUpdatePeriod: averageDuration / 4,
+      minimumUpdatePeriod: averageDuration / 2,
       transportType: "metadash",
       type: "dynamic",
       uris: [baseURL || ""],

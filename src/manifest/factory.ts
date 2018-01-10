@@ -56,6 +56,7 @@ export default function createManifest(
     return period;
   });
   const manifest = new Manifest(manifestObject as any);
+  debugger;
   manifest.addSupplementaryTextAdaptations(externalTextTracks);
   manifest.addSupplementaryImageAdaptations(externalImageTracks);
   return manifest;

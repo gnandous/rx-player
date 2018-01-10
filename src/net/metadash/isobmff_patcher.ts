@@ -55,8 +55,8 @@ export default class BoxPatchers {
         segNr?: number
     ){
         this.data = data;
-        this.topLevelBoxesToParse = ["styp", "sidx", "moof", "mdat"];
-        this.compositeBoxesToParse = ["moof", "traf"];
+        this.topLevelBoxesToParse = ["moov", "styp", "sidx", "moof", "mdat"];
+        this.compositeBoxesToParse = ["trak", "moov", "moof", "traf"];
         this.segNr = segNr;
         this.offset = offset || 0;
         this.lmsg = lmsg || false;
@@ -149,7 +149,7 @@ export default class BoxPatchers {
             output = this.trun(data);
             break;
           case "sidx":
-            output = this.sidx(data, false);
+            output = this.sidx(data, true);
             break;
           case "tfdt":
             output = this.tfdt(data);
@@ -157,7 +157,58 @@ export default class BoxPatchers {
           case "mdat":
             output = data;
             break;
+          case "mvhd":
+            output = this.mvhd(data);
+            break;
+          case "tkhd":
+            output = this.tkhd(data);
+            break;
+          default:
+            output = data;
+            break;
         }
+        // if(output.toString() !== data.toString()){
+        //   console.log(boxtype);
+        //   console.log("");
+        // }
+      }
+      return output;
+    }
+
+    tkhd(input: Uint8Array): Uint8Array {
+      const version = input[8];
+      let output = new Uint8Array(0);
+      if(version === 1){
+        output = concat(
+          input.subarray(0,36),
+          itobe8(0),
+          input.subarray(44, input.length)
+        );
+      } else {
+        output = concat(
+          input.subarray(0,28),
+          itobe4(0),
+          input.subarray(32, input.length)
+        );
+      }
+      return output;
+    }
+
+    mvhd(input: Uint8Array): Uint8Array {
+      const version = input[8];
+      let output = new Uint8Array(0);
+      if(version === 1){
+        output = concat(
+          input.subarray(0,32),
+          itobe8(0),
+          input.subarray(40, input.length)
+        );
+      } else {
+        output = concat(
+          input.subarray(0,24),
+          itobe4(0),
+          input.subarray(28, input.length)
+        );
       }
       return output;
     }

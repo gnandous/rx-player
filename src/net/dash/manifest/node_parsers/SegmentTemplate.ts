@@ -57,7 +57,6 @@ export default function parseSegmentTemplate(root: Node): IParsedSegmentTemplate
   const base : ISegmentTemplateAttributes = parseMultipleSegmentBase(root);
   for (let i = 0; i < root.attributes.length; i++) {
     const attribute = root.attributes[i];
-
     switch (attribute.nodeName) {
 
       case "initialization":
@@ -78,6 +77,7 @@ export default function parseSegmentTemplate(root: Node): IParsedSegmentTemplate
         base.bitstreamSwitching = parseBoolean(attribute.value);
         break;
     }
+    debugger;
   }
 
   const indexType = base.indexType == null ?

@@ -212,7 +212,7 @@ const SegmentTimelineHelpers: ISegmentHelpers<ITimelineIndex> = {
     }
 
     const diff = (getTimelineRangeEnd(last) - scaledTo);
-    return !(diff + (timescale / 2) >= 0);
+    return !(diff + timescale >= 0);
   },
 
   /**
