@@ -77,7 +77,6 @@ export default function parseSegmentTemplate(root: Node): IParsedSegmentTemplate
         base.bitstreamSwitching = parseBoolean(attribute.value);
         break;
     }
-    debugger;
   }
 
   const indexType = base.indexType == null ?
