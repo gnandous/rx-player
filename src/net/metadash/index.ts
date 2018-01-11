@@ -75,7 +75,7 @@ function loadMetaData(data: any): {
 } {
   return {
     urls: data.urls,
-    startTime: data.startTime || (Date.now() / 1000 - 20),
+    startTime: data.startTime,
   };
 }
 

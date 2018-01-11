@@ -474,6 +474,7 @@ export default function RepresentationBuffer({
       timing,
       needsInitSegment
     ).filter((segment) => segmentFilter(segment, wantedRange));
+
     if (neededSegments.length) {
       return {
         type: "segments-queued",

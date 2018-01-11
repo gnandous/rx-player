@@ -106,6 +106,7 @@ function replaceTokens(
         }
         const numberOffset =
           Math.floor(segment.duration ? (timeOffset / segment.duration) : 0);
+        console.log(timeOffset);
         return processFormatedToken(segment.number - numberOffset)(_x, _y, widthStr);
       })
       .replace(/\$Time(|\%0(\d+)d)\$/g, (_x, _y, widthStr) => {

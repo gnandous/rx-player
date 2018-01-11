@@ -297,7 +297,6 @@ export default class SegmentBookkeeper {
       log.warn("SegmentBookkeeper: ending time of the segment not defined");
       return;
     }
-
     const { inventory } = this;
 
     // infer start and end from the segment data

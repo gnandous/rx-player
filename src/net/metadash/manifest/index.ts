@@ -88,7 +88,7 @@ export function parseFromMetaDocument(
         break;
       }
     }
-    debugger;
+
     // 3 - Build new periods array
     const newPeriods = [];
     const currentStart: number = elapsedLoops * totalDuration;
@@ -122,7 +122,7 @@ export function parseFromMetaDocument(
 
     // In case we may have one manifest, we have to add a supplementary period after
     // last
-    const lastPeriodRef = newPeriods[1];
+    const lastPeriodRef = newPeriods[1] || newPeriods[0];
     const lastAdaptations = lastPeriodRef.adaptations;
     const lastStart = newPeriods[newPeriods.length - 1].end;
     if(lastStart && lastStart >= 0) {

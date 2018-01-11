@@ -61,7 +61,7 @@ const SegmentTemplateHelpers: ISegmentHelpers<ITemplateIndex> = {
     } = index;
 
     const segments : Segment[] = [];
-    for (let baseTime = up; baseTime <= to; baseTime += duration) {
+    for (let baseTime = up; baseTime < to; baseTime += duration) {
       let number;
       if(tokenOffset){
         const baseNumber = Math.floor((baseTime - (tokenOffset * timescale)) / duration);
