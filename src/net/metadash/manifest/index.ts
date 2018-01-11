@@ -88,7 +88,7 @@ export function parseFromMetaDocument(
         break;
       }
     }
-
+    debugger;
     // 3 - Build new periods array
     const newPeriods = [];
     const currentStart: number = elapsedLoops * totalDuration;
