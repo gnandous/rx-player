@@ -56,7 +56,7 @@ import {
  * @returns {Observable.<Object>}
  */
 function TextTrackLoader(
-  { segment, representation } : ISegmentLoaderArguments
+  { segment, representation, period } : ISegmentLoaderArguments
 ) : ILoaderObservable<ArrayBuffer|string> {
   const {
     media,
@@ -83,7 +83,7 @@ function TextTrackLoader(
    * @type string
    */
   const path = media ?
-    replaceTokens(media, segment, representation) : "";
+    replaceTokens(media, segment, representation, period) : "";
 
   /**
    * Complete path of the segment.

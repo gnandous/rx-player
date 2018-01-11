@@ -17,6 +17,7 @@
 import {
   Representation,
   Segment,
+  Period,
 } from "../../manifest";
 import {
   INextSegmentsInfos,
@@ -88,9 +89,10 @@ function processFormatedToken(
 function replaceTokens(
   path : string,
   segment : Segment,
-  representation : Representation
+  representation : Representation,
+  period: Period
 ) : string {
-  const timeOffset = segment.timescale * (representation.index.getTokenOffset() || 0);
+  const timeOffset = segment.timescale * period.start;
   if (path.indexOf("$") === -1) {
     return path;
   } else {
@@ -106,7 +108,6 @@ function replaceTokens(
         }
         const numberOffset =
           Math.floor(segment.duration ? (timeOffset / segment.duration) : 0);
-        console.log(timeOffset);
         return processFormatedToken(segment.number - numberOffset)(_x, _y, widthStr);
       })
       .replace(/\$Time(|\%0(\d+)d)\$/g, (_x, _y, widthStr) => {

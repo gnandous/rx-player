@@ -112,7 +112,7 @@ const segmentPreLoader = (customSegmentLoader? : CustomSegmentLoader) => ({
   }
 
   // construct url for the segment
-  const path = media ? replaceTokens(media, segment, representation) : "";
+  const path = media ? replaceTokens(media, segment, representation, period) : "";
   const url = resolveURL(representation.baseURL, path);
 
   const args = {

@@ -217,7 +217,7 @@ export default function(
 
       const imageTrackPipeline = {
         loader(
-          { segment, representation } : ISegmentLoaderArguments
+          { segment, representation, period } : ISegmentLoaderArguments
         ) : ILoaderObservable<ArrayBuffer> {
           const { isInit } = segment;
 
@@ -227,7 +227,7 @@ export default function(
             const { media } = segment;
 
             const path = media ?
-              replaceTokens(media, segment, representation) : "";
+              replaceTokens(media, segment, representation, period) : "";
             const mediaUrl = resolveURL(representation.baseURL, path);
             return request({
               url: mediaUrl,
