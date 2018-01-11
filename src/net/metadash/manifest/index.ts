@@ -106,18 +106,20 @@ export function parseFromMetaDocument(
     }
     // In case where live edge is a little before first period position,
     // we duplicate last period at beginning
-    const firstPeriodRef = newPeriods[newPeriods.length -1];
-    const firstAdaptations = firstPeriodRef.adaptations;
-    const firstStart = firstPeriodRef.duration ?
-      newPeriods[0].start - firstPeriodRef.duration :
-      firstPeriodRef.end;
-    if(firstStart && firstStart >= 0) {
-      newPeriods.splice(0, 0, {
-        adaptations: firstAdaptations,
-        duration: firstPeriodRef.duration,
-        id: "p" + Math.round(firstStart),
-        start: firstStart,
-      });
+    for(let i = 1; i<=durations.length; i++){
+      const firstPeriodRef = newPeriods[newPeriods.length -i];
+      const firstAdaptations = firstPeriodRef.adaptations;
+      const firstStart = firstPeriodRef.duration ?
+        newPeriods[0].start - firstPeriodRef.duration :
+        firstPeriodRef.end;
+      if(firstStart && firstStart >= 0) {
+        newPeriods.splice(0, 0, {
+          adaptations: firstAdaptations,
+          duration: firstPeriodRef.duration,
+          id: "p" + Math.round(firstStart),
+          start: firstStart,
+        });
+      }
     }
 
     // In case we may have one manifest, we have to add a supplementary period after
@@ -136,7 +138,7 @@ export function parseFromMetaDocument(
     const manifest = {
       availabilityStartTime: documents.startTime,
       presentationLiveGap: plg,
-      timeShiftBufferDepth: tsbd,
+      timeShiftBufferDepth: totalDuration - 10,
       duration: Infinity,
       id: "gen-metadash-man-"+generateNewId(),
       maxSegmentDuration:

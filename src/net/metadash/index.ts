@@ -167,14 +167,15 @@ export default function(
           representation,
           response,
           init,
+          period,
         } : ISegmentParserArguments<Uint8Array|ArrayBuffer>
         ) : SegmentParserObservable {
           const responseData = response.responseData instanceof Uint8Array
           ? response.responseData
            : new Uint8Array(response.responseData);
 
-          const offset = representation.index.getTokenOffset() || 0;
-
+          const offset = period.start || 0;
+          console.log(offset);
           let nextSegments : INextSegmentsInfos[]|undefined;
           let segmentInfos : ISegmentTimingInfos;
 
@@ -184,7 +185,6 @@ export default function(
           if (sidxSegments) {
             nextSegments = sidxSegments;
           }
-
           const segmentData = new BoxPatcher(
             responseData,
             false,

@@ -44,7 +44,8 @@ const SegmentTemplateHelpers: ISegmentHelpers<ITemplateIndex> = {
     repId : string|number,
     index : ITemplateIndex,
     _up : number,
-    _to : number
+    _to : number,
+    offset : number
   ) : Segment[] {
     const { up, to } = normalizeRange(index, _up, _to);
     if (to <= up) {
@@ -57,15 +58,15 @@ const SegmentTemplateHelpers: ISegmentHelpers<ITemplateIndex> = {
       timescale,
       media,
       presentationTimeOffset,
-      tokenOffset,
     } = index;
 
     const segments : Segment[] = [];
     for (let baseTime = up; baseTime < to; baseTime += duration) {
       let number;
-      if(tokenOffset){
-        const baseNumber = Math.floor((baseTime - (tokenOffset * timescale)) / duration);
-        const offsetNumber = Math.floor((tokenOffset * timescale) / duration);
+      let offsetNumber = 0;
+      if(offset){
+        const baseNumber = Math.floor((baseTime - (offset * timescale)) / duration);
+        offsetNumber = Math.floor((offset * timescale) / duration);
         number = baseNumber + offsetNumber +
           (startNumber == null ? 1 : startNumber);
       } else {
@@ -85,6 +86,7 @@ const SegmentTemplateHelpers: ISegmentHelpers<ITemplateIndex> = {
         indexRange: null,
         timescale,
         media,
+        offsetNumber,
       };
       segments.push(new Segment(args));
     }

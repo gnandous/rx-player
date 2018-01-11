@@ -69,12 +69,13 @@ class RepresentationIndex {
     return this._indexHelpers.getInitSegment(this._rootId, this._index);
   }
 
-  getSegments(up : number, duration : number) : Segment[] {
+  getSegments(up : number, duration : number, offset : number) : Segment[] {
     return this._indexHelpers.getSegments(
       this._rootId,
       this._index,
       up,
-      duration
+      duration,
+      offset
     );
   }
 

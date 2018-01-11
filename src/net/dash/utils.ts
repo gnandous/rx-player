@@ -30,9 +30,9 @@ import {
  * @param {Object} nextSegments
  */
 function addNextSegments(
-  representation : Representation,
-  dlSegment : ISegmentTimingInfos,
-  nextSegments : INextSegmentsInfos[]
+  representation: Representation,
+  dlSegment: ISegmentTimingInfos,
+  nextSegments: INextSegmentsInfos[]
 ) {
   if (
     dlSegment.duration != null &&
@@ -40,9 +40,9 @@ function addNextSegments(
   ) {
     // TODO TypeScript bug?
     representation.index._addSegments(nextSegments, dlSegment as {
-      time : number;
-      duration : number;
-      timescale : number;
+      time: number;
+      duration: number;
+      timescale: number;
     });
   }
 }
@@ -53,7 +53,7 @@ function addNextSegments(
  * @param {Number} l
  * @returns {string}
  */
-function pad(n : number|string, l : number) : string {
+function pad(n: number | string, l: number): string {
   const nToString = n.toString();
   if (nToString.length >= l) {
     return nToString;
@@ -68,9 +68,9 @@ function pad(n : number|string, l : number) : string {
  * @returns {Function} - @see replaceTokens
  */
 function processFormatedToken(
-  replacer : string|number
-) : (x: string, y: number, widthStr: string) => string {
-  return (_match, _format, widthStr : string) => {
+  replacer: string | number
+): (x: string, y: number, widthStr: string) => string {
+  return (_match, _format, widthStr: string) => {
     const width = widthStr ? parseInt(widthStr, 10) : 1;
     return pad("" + replacer, width);
   };
@@ -87,11 +87,11 @@ function processFormatedToken(
  * @throws Error - Throws if we do not have enough data to construct the URL
  */
 function replaceTokens(
-  path : string,
-  segment : Segment,
-  representation : Representation,
+  path: string,
+  segment: Segment,
+  representation: Representation,
   period: Period
-) : string {
+): string {
   const timeOffset = segment.timescale * period.start;
   if (path.indexOf("$") === -1) {
     return path;
@@ -99,16 +99,16 @@ function replaceTokens(
     return path
       .replace(/\$\$/g, "$")
       .replace(/\$RepresentationID\$/g,
-        String(representation.id))
+      String(representation.id))
       .replace(/\$Bandwidth(|\%0(\d+)d)\$/g,
-        processFormatedToken(representation.bitrate))
+      processFormatedToken(representation.bitrate))
       .replace(/\$Number(|\%0(\d+)d)\$/g, (_x, _y, widthStr) => {
         if (segment.number == null) {
           throw new Error("Segment number not defined in a $Number$ scheme");
         }
         const numberOffset =
           Math.floor(segment.duration ? (timeOffset / segment.duration) : 0);
-        return processFormatedToken(segment.number - numberOffset)(_x, _y, widthStr);
+        return processFormatedToken(segment.number - (numberOffset ? segment.offsetNumber : 0))(_x, _y, widthStr);
       })
       .replace(/\$Time(|\%0(\d+)d)\$/g, (_x, _y, widthStr) => {
         if (segment.time == null) {
@@ -127,7 +127,7 @@ function replaceTokens(
  * @param {Representation} representation
  * @returns {Boolean}
  */
-function isMP4EmbeddedTrack(representation : Representation) : boolean {
+function isMP4EmbeddedTrack(representation: Representation): boolean {
   return representation.mimeType === "application/mp4";
 }
 
@@ -136,7 +136,7 @@ function isMP4EmbeddedTrack(representation : Representation) : boolean {
  * @param {Array.<string|Number>}
  * @returns {string}
  */
-function byteRange([start, end] : [number, number]) : string {
+function byteRange([start, end]: [number, number]): string {
   if (!end || end === Infinity) {
     return "bytes=" + (+start) + "-";
   } else {
