@@ -98,7 +98,6 @@ export function parseFromMetaDocument(
       const newPeriod = parsedPeriods[newIndex];
 
       newPeriod.start = currentStart + elapsedTimeOnLoop;
-      patchSegmentsIndex(newPeriod);
       elapsedTimeOnLoop += newPeriod.duration || 0;
       newPeriod.end = newPeriod.start + (newPeriod.duration || 0);
       newPeriod.id = "p" + Math.round(newPeriod.start);
@@ -107,7 +106,7 @@ export function parseFromMetaDocument(
     // In case where live edge is a little before first period position,
     // we duplicate last period at beginning
     for(let i = 1; i<=durations.length; i++){
-      const firstPeriodRef = newPeriods[newPeriods.length -i];
+      const firstPeriodRef = newPeriods[newPeriods.length - i];
       const firstAdaptations = firstPeriodRef.adaptations;
       const firstStart = firstPeriodRef.duration ?
         newPeriods[0].start - firstPeriodRef.duration :
@@ -122,9 +121,7 @@ export function parseFromMetaDocument(
       }
     }
 
-    // In case we may have one manifest, we have to add a supplementary period after
-    // last
-    const lastPeriodRef = newPeriods[1] || newPeriods[0];
+    const lastPeriodRef = newPeriods[0];
     const lastAdaptations = lastPeriodRef.adaptations;
     const lastStart = newPeriods[newPeriods.length - 1].end;
     if(lastStart && lastStart >= 0) {
@@ -135,10 +132,14 @@ export function parseFromMetaDocument(
       });
     }
 
+    newPeriods.forEach((period) =>{
+      patchSegmentsIndex(period);
+    });
+
     const manifest = {
       availabilityStartTime: documents.startTime,
       presentationLiveGap: plg,
-      timeShiftBufferDepth: totalDuration - 10,
+      timeShiftBufferDepth: totalDuration,
       duration: Infinity,
       id: "gen-metadash-man-"+generateNewId(),
       maxSegmentDuration:

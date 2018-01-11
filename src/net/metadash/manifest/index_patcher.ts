@@ -18,8 +18,11 @@ import { IParsedAdaptationSet } from "../../dash/manifest/node_parsers/Adaptatio
 import { IParsedPeriod } from "../../dash/manifest/node_parsers/Period";
 
 export default function patchSegmentsIndex(period: IParsedPeriod) {
-    period.adaptations.forEach((adaptation: IParsedAdaptationSet) => {
-      const reps = adaptation.representations;
+    const adapt = JSON.parse(JSON.stringify(period.adaptations));
+    delete period.adaptations;
+    adapt.forEach((adaptation: IParsedAdaptationSet) => {
+      const reps = JSON.parse(JSON.stringify(adaptation.representations));
+      delete adaptation.representations;
       reps.forEach((rep) => {
         const index = rep.index;
         if(index.tokenOffset == null){
@@ -31,5 +34,7 @@ export default function patchSegmentsIndex(period: IParsedPeriod) {
           }
         }
       });
+      adaptation.representations = reps;
     });
+    period.adaptations = adapt;
 }

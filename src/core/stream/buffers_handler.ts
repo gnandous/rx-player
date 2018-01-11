@@ -414,7 +414,6 @@ export default function BuffersHandler(
     adaptation$ : Observable<Adaptation|null>
   ) : Observable<IPeriodBufferEvent> {
     return adaptation$.switchMap((adaptation) => {
-
       if (adaptation == null) {
         if (sourceBufferManager.has(bufferType)) {
           const _queuedSourceBuffer = sourceBufferManager.get(bufferType);

@@ -173,9 +173,9 @@ export default function(
           const responseData = response.responseData instanceof Uint8Array
           ? response.responseData
            : new Uint8Array(response.responseData);
-
-          const offset = period.start || 0;
-          console.log(offset);
+          
+          const offset = representation.index.getTokenOffset() || 0;
+          console.log(offset, init ? init.timescale : segment.timescale);
           let nextSegments : INextSegmentsInfos[]|undefined;
           let segmentInfos : ISegmentTimingInfos;
 
