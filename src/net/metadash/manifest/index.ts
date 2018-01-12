@@ -139,7 +139,7 @@ export function parseFromMetaDocument(
     const manifest = {
       availabilityStartTime: documents.startTime,
       presentationLiveGap: plg,
-      timeShiftBufferDepth: totalDuration,
+      timeShiftBufferDepth: 30,
       duration: Infinity,
       id: "gen-metadash-man-"+generateNewId(),
       maxSegmentDuration:

@@ -123,7 +123,7 @@ export default function(
               value: {
                 responseData: {
                   manifests,
-                  startTime: metaData.startTime,
+                  startTime: Math.max(metaData.startTime - 10, 0),
                 },
               },
             };
@@ -173,9 +173,7 @@ export default function(
           const responseData = response.responseData instanceof Uint8Array
           ? response.responseData
            : new Uint8Array(response.responseData);
-          
           const offset = representation.index.getTokenOffset() || 0;
-          console.log(offset, init ? init.timescale : segment.timescale);
           let nextSegments : INextSegmentsInfos[]|undefined;
           let segmentInfos : ISegmentTimingInfos;
 

@@ -99,8 +99,6 @@ const PLAYER = ({ $destroy, state }, { videoElement, textTrackElement }) => {
     },
 
     SEEK: (position) => {
-      console.log(player.getPosition());
-      console.log(position);
       player.seekTo({ position });
     },
 
