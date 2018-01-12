@@ -204,7 +204,7 @@ export default class LanguageManager {
     const audioAdaptations = periodItem.period.adaptations.audio || [];
     const chosenAudioAdaptation = this._audioChoiceMemory.get(period);
     if (
-      chosenAudioAdaptation === undefined ||
+      chosenAudioAdaptation == null ||
       !isAudioAdaptationOptimal(
         chosenAudioAdaptation, audioAdaptations, preferredAudioTracks)
     ) {
