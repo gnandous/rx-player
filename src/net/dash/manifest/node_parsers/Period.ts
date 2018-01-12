@@ -37,6 +37,7 @@ export interface IParsedPeriod {
   start? : number;
   duration? : number;
   bitstreamSwitching? : boolean;
+  end?: number;
 }
 
 /**

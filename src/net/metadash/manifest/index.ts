@@ -26,6 +26,12 @@ import config from "../../../config";
 
 const { DEFAULT_LIVE_GAP } = config;
 
+function roundDecimal(nombre: number, _precision: number){
+  const precision = _precision || 2;
+  const tmp = Math.pow(10, precision);
+  return Math.round(nombre*tmp)/tmp;
+}
+
 export function parseFromMetaDocument(
     documents: {
       manifests: Array<{
@@ -90,7 +96,7 @@ export function parseFromMetaDocument(
     }
 
     // 3 - Build new periods array
-    const newPeriods = [];
+    const newPeriods: IParsedPeriod[] = [];
     const currentStart: number = elapsedLoops * totalDuration;
 
     for(let j = 0; j < durations.length; j++){
@@ -103,34 +109,44 @@ export function parseFromMetaDocument(
       newPeriod.id = "p" + Math.round(newPeriod.start);
       newPeriods.push(newPeriod);
     }
-    // In case where live edge is a little before first period position,
-    // we duplicate last period at beginning
+
+    // 4 - Build every periods since start = 0.
+    for(let k = 0; k<=elapsedLoops; k++){
+      for(let i = 1; i<=durations.length; i++){
+        const firstPeriodRef = newPeriods[newPeriods.length - i];
+        const firstAdaptations = firstPeriodRef.adaptations;
+        const firstStart = firstPeriodRef.duration ?
+          (newPeriods[0].start || 0) - firstPeriodRef.duration :
+          firstPeriodRef.end;
+        if(firstStart && roundDecimal(firstStart, 3) >= 0) {
+          newPeriods.splice(0, 0, {
+            adaptations: firstAdaptations,
+            duration: firstPeriodRef.duration,
+            id: "p" + Math.round(firstStart),
+            start: roundDecimal(firstStart, 3),
+          });
+        }
+      }
+    }
+
+    // 5 - Build (N: duration.length) periods behind last period
     for(let i = 1; i<=durations.length; i++){
-      const firstPeriodRef = newPeriods[newPeriods.length - i];
-      const firstAdaptations = firstPeriodRef.adaptations;
-      const firstStart = firstPeriodRef.duration ?
-        newPeriods[0].start - firstPeriodRef.duration :
-        firstPeriodRef.end;
-      if(firstStart && firstStart >= 0) {
-        newPeriods.splice(0, 0, {
-          adaptations: firstAdaptations,
-          duration: firstPeriodRef.duration,
-          id: "p" + Math.round(firstStart),
-          start: firstStart,
+      const lastPeriodRef = newPeriods[i -1];
+      const lastAdaptations = lastPeriodRef.adaptations;
+      const lastStart = newPeriods[newPeriods.length - 1].end;
+      if(lastStart && lastStart >= 0) {
+        newPeriods.push({
+          adaptations: lastAdaptations,
+          id: "p" + Math.round(lastStart),
+          start: lastStart,
+          end: (lastPeriodRef.duration || 0) + lastStart,
+          duration: lastPeriodRef.duration,
         });
       }
     }
 
-    const lastPeriodRef = newPeriods[0];
-    const lastAdaptations = lastPeriodRef.adaptations;
-    const lastStart = newPeriods[newPeriods.length - 1].end;
-    if(lastStart && lastStart >= 0) {
-      newPeriods.push({
-        adaptations: lastAdaptations,
-        id: "p" + Math.round(lastStart),
-        start: lastStart,
-      });
-    }
+    newPeriods[newPeriods.length -1].end = undefined;
+    newPeriods[newPeriods.length -1].duration = undefined;
 
     newPeriods.forEach((period) =>{
       patchSegmentsIndex(period);
@@ -139,7 +155,7 @@ export function parseFromMetaDocument(
     const manifest = {
       availabilityStartTime: documents.startTime,
       presentationLiveGap: plg,
-      timeShiftBufferDepth: 30,
+      timeShiftBufferDepth: totalDuration,
       duration: Infinity,
       id: "gen-metadash-man-"+generateNewId(),
       maxSegmentDuration:
@@ -151,7 +167,7 @@ export function parseFromMetaDocument(
       profiles: "urn:mpeg:dash:profile:isoff-live:2011",
       periods: newPeriods,
       suggestedPresentationDelay: spd,
-      minimumUpdatePeriod: averageDuration / 2,
+      minimumUpdatePeriod: totalDuration,
       transportType: "metadash",
       type: "dynamic",
       uris: [baseURL || ""],

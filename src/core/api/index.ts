@@ -1779,7 +1779,6 @@ class Player extends EventEmitter<any> {
     period : Period;
   }) : void {
     const { type, period } = value;
-
     if (type === "audio" || type === "text") {
       if (this._priv_languageManager) {
         this._priv_languageManager.removePeriod(type, period);

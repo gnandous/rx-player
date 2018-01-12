@@ -167,7 +167,6 @@ export default function(
           representation,
           response,
           init,
-          period,
         } : ISegmentParserArguments<Uint8Array|ArrayBuffer>
         ) : SegmentParserObservable {
           const responseData = response.responseData instanceof Uint8Array

@@ -277,10 +277,7 @@ export default function RepresentationBuffer({
     // given the current timestamp and the previously calculated time gap and
     // wanted buffer size, we can retrieve the list of segments to inject in
     // our pipelines.
-    const mediaSegments = representation.index.getSegments(start, duration, period.start);
-    if(mediaSegments.length === 0){
-      debugger;
-    }
+    const mediaSegments = representation.index.getSegments(start, duration);
     if (initSegment) {
       mediaSegments.unshift(initSegment);
     }

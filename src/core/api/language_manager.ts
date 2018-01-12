@@ -24,6 +24,7 @@ import { Subject } from "rxjs/Subject";
 import { Adaptation, Period } from "../../manifest";
 import log from "../../utils/log";
 import SortedList from "../../utils/sorted_list";
+import { bufferTime } from "rxjs/operators/bufferTime";
 
 export interface IAudioTrackConfiguration {
   language : string;
@@ -169,6 +170,12 @@ export default class LanguageManager {
     if (periodItem[bufferType] == null) {
       log.warn(`LanguageManager: ${bufferType} already removed for period`, period);
       return;
+    }
+    switch(bufferType){
+      case "audio":
+        this.disableAudioTrack(period);
+      case "text":
+        this.disableTextTrack(period);
     }
     delete periodItem[bufferType];
     if (periodItem.audio == null && periodItem.text == null) {

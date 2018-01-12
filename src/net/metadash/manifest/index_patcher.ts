@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { IPeriod } from "../../../net/dash/manifest/node_parsers";
 import { IParsedAdaptationSet } from "../../dash/manifest/node_parsers/AdaptationSet";
 import { IParsedPeriod } from "../../dash/manifest/node_parsers/Period";
 
@@ -29,7 +30,7 @@ export default function patchSegmentsIndex(period: IParsedPeriod) {
           index.tokenOffset = period.start;
           if(index.timeline != null && period.start != null){
             index.timeline.forEach((tl: any) => {
-              tl.ts += ((period.start || 0) * index.timescale);
+              tl.ts += ((index.tokenOffset || 0) * index.timescale);
           });
           }
         }
@@ -37,4 +38,5 @@ export default function patchSegmentsIndex(period: IParsedPeriod) {
       adaptation.representations = reps;
     });
     period.adaptations = adapt;
+    return period;
 }

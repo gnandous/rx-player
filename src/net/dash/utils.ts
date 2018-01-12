@@ -92,7 +92,7 @@ function replaceTokens(
   representation: Representation,
   period: Period
 ): string {
-  const timeOffset = segment.timescale * period.start;
+  const timeOffset = segment.timescale * representation.index.getTokenOffset();
   if (path.indexOf("$") === -1) {
     return path;
   } else {
@@ -108,7 +108,7 @@ function replaceTokens(
         }
         const numberOffset =
           Math.floor(segment.duration ? (timeOffset / segment.duration) : 0);
-        return processFormatedToken(segment.number - (numberOffset ? segment.offsetNumber : 0))(_x, _y, widthStr);
+        return processFormatedToken(segment.number - numberOffset)(_x, _y, widthStr);
       })
       .replace(/\$Time(|\%0(\d+)d)\$/g, (_x, _y, widthStr) => {
         if (segment.time == null) {
